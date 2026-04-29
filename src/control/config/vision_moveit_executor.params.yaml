@@ -1,0 +1,19 @@
+vision_moveit_executor:
+  ros__parameters:
+    # 单次定位测试执行器：
+    # 只接收 /target_pose_stamped，不排队，不保留 pending 目标。
+    # 执行中若有新目标到来，直接忽略，避免二次定位和连续追踪。
+    planning_group: arm
+    base_frame: base_link
+    target_pose_stamped_topic: /target_pose_stamped
+    joint_target_topic: /view_goal_joint_target
+    status_topic: /vision_exec_status
+
+    # MoveIt 基本规划参数。
+    planning_time: 3.0
+    num_planning_attempts: 3
+    max_velocity_scaling_factor: 0.25
+    max_acceleration_scaling_factor: 0.25
+    goal_joint_tolerance: 0.005
+    goal_position_tolerance: 0.01
+    goal_orientation_tolerance: 0.15

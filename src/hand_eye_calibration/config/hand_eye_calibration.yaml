@@ -1,0 +1,28 @@
+# 手眼标定配置文件 (hand_eye_calibration.yaml)
+hand_eye_calibration:
+  ros__parameters:
+    # ============ 棋盘参数 ============
+    checkerboard_rows: 8            # 棋盘行角点数 (9x9 fields = 8x8 corners)
+    checkerboard_cols: 8            # 棋盘列角点数 (9x9 fields = 8x8 corners)
+    square_size_mm: 33.0            # 棋盘格子边长 (mm) = 3.3cm
+
+    # ============ D435i RGB 相机参数 ============
+    camera_fx: 906.948              # X方向焦距 (像素)
+    camera_fy: 905.906              # Y方向焦距 (像素)
+    camera_cx: 648.379              # 主点 X坐标 (像素)
+    camera_cy: 383.873              # 主点 Y坐标 (像素)
+
+    # ============ 标定参数 ============
+    min_samples: 20                 # 最少采样数
+    output_file: /tmp/hand_eye_calibration_result.yaml  # 输出文件路径
+    max_pose_age_sec: 2.0           # /tool_pose 最大允许时延（秒）
+    max_image_age_sec: 3.0          # 图像最大允许时延（秒）
+    board_margin_px: 20             # 角点距图像边缘最小像素安全距离
+    stability_window_sec: 2.0       # 稳定判断时间窗（秒）
+    stable_pos_thresh_m: 0.0012     # 稳定判断：时间窗内末端位置最大变化阈值（米）
+    stable_rot_thresh_deg: 0.2      # 稳定判断：时间窗内末端姿态最大变化阈值（度）
+    min_stability_samples: 8        # 参与稳定判断的最少tool_pose样本数
+    require_motion_after_target: true  # 每次收到新目标后，需先观测到运动再允许判稳
+    motion_start_pos_thresh_m: 0.0015  # 判定“已开始运动”的位置阈值（米）
+    motion_start_rot_thresh_deg: 0.2   # 判定“已开始运动”的姿态阈值（度）
+    motion_start_timeout_sec: 2.0      # 目标发布后等待运动开始的超时（秒）

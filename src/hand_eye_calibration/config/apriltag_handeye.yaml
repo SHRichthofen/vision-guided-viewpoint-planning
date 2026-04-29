@@ -1,0 +1,25 @@
+apriltag:
+  ros__parameters:
+    # 单标签 hand-eye 默认配置
+    # hand-eye 采样要求 tracking TF 持续稳定刷新，默认优先使用 raw，
+    # 避免 compressed 在标定时引入额外延迟/掉帧，导致 tag TF 停更。
+    image_transport: raw
+    family: 36h11
+    size: 0.152
+    max_hamming: 0
+    z_up: false
+
+    # 与 apriltag_ros 官方示例对齐的检测器参数，优先保证稳定检测
+    detector:
+      threads: 1
+      decimate: 2.0
+      blur: 0.0
+      refine: true
+      sharpening: 0.25
+      debug: false
+
+    # 只跟踪一个标签，避免多标签跳变
+    tag:
+      ids: [0]
+      frames: ["tag36h11:0"]
+      sizes: [0.162]

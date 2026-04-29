@@ -1,0 +1,20 @@
+arm_pose_controller:
+  ros__parameters:
+    enable_debug: true
+    target_frame: base_link
+    desired_camera_frame: camera_color_optical_frame
+    calibration_camera_frame: camera_link
+    use_tf_camera_frame_alignment: true
+    roll_reference_axis: world_z
+
+    # 单次定位测试模式：
+    # 选中一个目标后，只使用第一帧 /cylinder_semantics_base 生成并发布一次目标位姿。
+    # 后续视觉更新全部忽略，直到下一次 /target_id 到来。
+    #
+    # axis_into_tube_sign:
+    #   当系统无法从当前相机实际位置判断“哪一侧是朝管内”时，用它决定轴向正负。
+    # camera_standoff_m:
+    #   相机站位距离。相机中心会从管口中心沿朝外方向退开这么远。
+    #   例如 0.10 表示相机停在距管口中心 10 cm 的外侧。
+    axis_into_tube_sign: 1.0
+    camera_standoff_m: 0.10

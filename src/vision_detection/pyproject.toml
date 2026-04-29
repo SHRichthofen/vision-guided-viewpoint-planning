@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vision_detection"
+version = "1.0.0"
+description = "YOLO-based cylinder detection for RealSense camera"
+maintainers = [
+    {name = "arno", email = "arno@example.com"},
+]
+license = {text = "Apache-2.0"}
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+cylinder_detection = "vision_detection.detection_node:main"

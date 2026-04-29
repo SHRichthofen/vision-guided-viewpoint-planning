@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Entry point for vision_to_arm_transform node."""
+
+from vision_arm_control.vision_to_arm_transform import main
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>vision_arm_control</name>
+  <version>1.0.0</version>
+  <description>
+    Vision-Arm Integration Package (Pure Python)
+    Implements coordinate transformation layer (camera → base_link) and control layer.
+    Bridge between vision detection and robotic arm control.
+  </description>
+  
+  <maintainer email="arno@example.com">Arno</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- Build dependencies -->
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- Build and runtime dependencies -->
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+
+  <!-- Python runtime dependencies -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-pyyaml</exec_depend>
+
+  <!-- Export -->
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

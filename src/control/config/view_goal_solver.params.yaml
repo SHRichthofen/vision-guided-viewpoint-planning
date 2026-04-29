@@ -1,0 +1,47 @@
+view_goal_solver:
+  ros__parameters:
+    planning_group: arm
+    base_frame: base_link
+    effector_frame: tcp_link
+    camera_frame: camera_color_optical_frame
+
+    cylinder_semantics_topic: /cylinder_semantics_base
+    target_id_topic: /target_id
+    joint_target_topic: /view_goal_joint_target
+    debug_topic: /view_goal_solver_debug
+
+    # Keep the legacy pose path available unless this node is explicitly enabled.
+    require_target_id: true
+    solve_once_per_selection: true
+
+    # Observation model.
+    axis_into_tube_sign: 1.0
+    depth_proxy_m: 0.05
+    standoff_desired_m: 0.10
+    standoff_min_m: 0.06
+    standoff_max_m: 0.18
+    gaze_max_rad: 0.35
+    axis_max_rad: 0.70
+
+    # Cost weights for q -> FK(q) -> camera pose scoring.
+    weight_gaze: 8.0
+    weight_axis: 2.0
+    weight_standoff: 4.0
+    weight_motion: 0.08
+    weight_joint_limit: 0.35
+    weight_wrist_motion: 0.15
+    hard_constraint_weight: 80.0
+    joint_limit_margin_threshold_rad: 0.12
+
+    # Lightweight continuous q-space coordinate descent.
+    multi_start_count: 7
+    max_iterations_per_seed: 120
+    initial_step_rad: 0.10
+    min_step_rad: 0.003
+    step_shrink: 0.55
+    seed_perturbation_rad: 0.35
+
+    current_state_wait_sec: 1.0
+    tf_lookup_timeout_sec: 0.5
+    allow_identity_effector_camera_fallback: false
+    publish_if_constraints_fail: false

@@ -1,0 +1,23 @@
+vision_detection:
+  ros__parameters:
+    # 相机参数
+    camera_fx: 906.948
+    camera_fy: 905.906
+    camera_cx: 648.379
+    camera_cy: 383.873
+    
+    # 模型参数
+    model_body_name: "cylinder_best.pt"
+    model_rim_name: "rim_best.pt"
+    
+    # 检测参数
+    body_conf_threshold: 0.5
+    rim_conf_threshold: 0.5
+    
+    # 处理参数
+    crop_padding_ratio: 0.25
+    rim_mask_dilation: 15
+    
+    # 输出参数
+    enable_debug: false
+    publish_interval_ms: 100

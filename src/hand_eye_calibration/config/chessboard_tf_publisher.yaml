@@ -1,0 +1,11 @@
+chessboard_tf_publisher_node:
+  ros__parameters:
+    image_topic: /camera/camera/color/image_raw
+    camera_info_topic: /camera/camera/color/camera_info
+    camera_frame: ""
+    board_frame: calib_board
+    pattern_rows: 8
+    pattern_cols: 8
+    square_size_m: 0.033
+    pose_topic: /calib_board_pose
+    use_ros_now_stamp: true

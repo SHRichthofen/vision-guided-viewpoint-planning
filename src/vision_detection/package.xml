@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>vision_detection</name>
+  <version>1.0.0</version>
+  <description>
+    Vision Detection Package - YOLO-based Cylinder Detection
+    Detects cylinders in RealSense camera stream and publishes 3D pose.
+    Two-stage detection: cylinder body + rim/hole detection.
+  </description>
+  
+  <maintainer email="arno@example.com">Arno</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- Build dependencies -->
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- Build and runtime dependencies -->
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <!-- Python runtime dependencies -->
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>ultralytics</exec_depend>
+  <exec_depend>pyrealsense2</exec_depend>
+
+  <!-- Export -->
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

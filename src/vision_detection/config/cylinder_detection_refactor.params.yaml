@@ -1,0 +1,19 @@
+cylinder_detection:
+  ros__parameters:
+    model_dir: ""
+    enable_debug: true
+    publish_interval_ms: 100
+    enable_visualization: true
+    require_confirm_before_publish: true
+    scan_distance: 0.18
+    look_inward: true
+
+    # 重构后建议：不要“一次确认只发一次”，为后续闭环留出连续更新通道
+    publish_once_per_selection: false
+    selected_semantics_topic: /vision/selected_cylinder_semantics
+
+    enable_depth_prior: true
+    depth_min_m: 0.15
+    depth_max_m: 1.20
+    depth_valid_ratio_min: 0.20
+    depth_iqr_max_m: 0.05

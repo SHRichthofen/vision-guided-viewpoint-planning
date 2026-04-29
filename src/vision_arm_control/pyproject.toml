@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vision_arm_control"
+version = "1.0.0"
+description = "Vision-Arm Integration Package"
+maintainers = [
+    {name = "arno", email = "arno@example.com"},
+]
+license = {text = "Apache-2.0"}
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+vision_to_arm_transform = "vision_arm_control.vision_to_arm_transform:main"
+arm_pose_controller = "vision_arm_control.arm_pose_controller:main"
+target_selector = "vision_arm_control.target_selector:main"

@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Entry point for arm_pose_controller node."""
+
+from vision_arm_control.arm_pose_controller import main
+
+if __name__ == '__main__':
+    main()
