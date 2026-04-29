@@ -1,0 +1,4 @@
+requester: making request: std_srvs.srv.Trigger_Request()
+
+response:
+std_srvs.srv.Trigger_Response(success=True, message='Calibration computed and saved. Samples used: 20, configured min_samples=20')

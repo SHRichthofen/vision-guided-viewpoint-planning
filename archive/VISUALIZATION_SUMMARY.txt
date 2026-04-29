@@ -1,0 +1,76 @@
+================================================================================
+                      可视化系统改进 - 最终总结
+================================================================================
+
+【用户需求】
+"不满意当前可视化窗口，希望直接显示相机画面，在画面中标出选中的圆柱及位姿"
+
+【实现方案】✅ 已完成
+
+1. 直接显示实时相机画面
+   - 订阅 /camera/color/image_raw (RealSense RGB图像)
+   - 使用cv_bridge进行消息转换
+   
+2. 标注所有检测圆柱
+   - 通过3D→2D投影显示在图像上
+   - 未选中：蓝色圆点
+   - 选中：绿色圆点 + 详细信息
+
+3. 显示选中圆柱的位姿
+   - 圆柱ID标签
+   - 3D坐标轴（Z轴蓝色箭头）
+   - 深度值 (Z)
+   - XY位置坐标
+
+4. 键盘交互
+   - W/S: 切换圆柱
+   - ENTER: 确认选择
+   - A: 自动/手动模式
+   - Q: 退出
+
+【修改文件】
+- src/vision_arm_control/vision_arm_control/target_selector.py
+  • 新增 Image 消息订阅
+  • 新增 CvBridge 图像转换
+  • 新增 project_point_to_image() 投影方法
+  • 新增 draw_cylinder_pose() 绘制方法
+  • 完全重写 ui_loop() 为相机画面模式
+
+【编译验证】✅ 
+- Summary: 1 package finished [0.56s]
+- 所有4个节点启动成功
+- 实时显示工作正常
+
+【使用步骤】
+1. conda deactivate
+2. source install/setup.bash
+3. ./run_visualization.sh  (或 ros2 launch vision_arm_control vision_arm_integration.launch.py)
+4. 在弹出的OpenCV窗口中使用W/S键选择、ENTER确认
+
+【文档】
+- VISUALIZATION_GUIDE.md       - 详细用户说明
+- VISUALIZATION_UPDATE.md      - 改进总结和技术细节
+- VISUALIZATION_QUICKSTART.md  - 快速入门指南
+- run_visualization.sh         - 启动脚本
+
+【优势】
+✨ 直观 - 在实际相机画面上看到检测结果
+✨ 实时 - 无延迟反映当前状态
+✨ 交互 - 直观的键盘控制
+✨ 调试 - 便于验证系统正常性
+✨ 可扩展 - 易于添加更多信息
+
+【技术亮点】
+1. ROS2图像处理: cv_bridge消息转换
+2. 相机投影: 基于内参的3D→2D变换
+3. 实时绘制: OpenCV cv::circle, cv::arrowedLine等
+4. 坐标系变换: 相机坐标系↔图像平面坐标系
+
+【下一步可能改进】
+- 鼠标点击选择
+- 置信度分值显示
+- 调试截图/视频保存
+- 相机参数动态配置
+- 支持多种相机模型
+
+================================================================================

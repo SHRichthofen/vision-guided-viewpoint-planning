@@ -1,0 +1,6 @@
+test_lines=25
+parsed_structured_samples=24
+base_t_mean=[-0.74281,0.25836,-0.28575] m
+base_t_std =[0.02108,0.04836,0.02953] m
+base_t_radial_max=0.24432 m
+base_q_deg_mean/std/max=10.555/10.507/47.605

@@ -1,0 +1,48 @@
+我先把你留档里优先级最高的 **Phase A** 落地了：先改 `arm_pose_controller.py`，把发布门控、`/vision_exec_status` busy gate、禁零半径、preobserve/observe 两阶段都加进去；这正是你要求当前先做的方向。
+
+这次还额外定位到一个很关键的“真 bug”：
+旧版评分函数里有个 `front_term = 1 - abs((2*aidx/azimuth_count)-1)`，它会天然偏向**中间索引**；均匀采样时，中间索引通常就是 **180°**。所以你日志里“最佳候选老是 azimuth=180°”不是巧合，是评分函数自己在往那边拽。再叠加旧版在某些情况下会偏好更小半径，`radius=0` 就很容易持续霸榜。
+
+我已经生成好了这几个文件：
+
+* [新版控制层源码 arm_pose_controller_phaseA.py](sandbox:/mnt/data/arm_pose_controller_phaseA.py)
+* [新版参数 arm_pose_controller_phaseA.params.yaml](sandbox:/mnt/data/arm_pose_controller_phaseA.params.yaml)
+* [统一 diff 补丁 arm_pose_controller_phaseA.patch](sandbox:/mnt/data/arm_pose_controller_phaseA.patch)
+* [应用说明 PHASE_A_APPLY_NOTES.md](sandbox:/mnt/data/PHASE_A_APPLY_NOTES.md)
+
+这版具体做了这些改动：
+
+* 加发布门控
+  `min_publish_interval_sec`、`min_position_delta_m`、`min_orientation_delta_rad`、`min_score_improvement`
+* 加执行器忙闲门控
+  订阅 `/vision_exec_status`，在 `planning / executing / queued` 时不再继续发新目标，只缓存最新更新
+* 去掉退化候选
+  默认不允许 `radius=0`，参数里也把半径列表改成了 `0.015,0.03`
+* 改评分逻辑
+  去掉对 `180°` 的隐式偏置，改成需要 oblique 时轻微偏向侧视角
+* 加两阶段推进
+  新目标先发 `preobserve`，执行成功后自动推进到 `observe`
+
+我还做了语法检查，`py_compile` 已经过了。
+
+你现在直接替换的核心文件是：
+
+* `vision_arm_control/vision_arm_control/arm_pose_controller.py`
+* launch 真正引用的那个 `arm_pose_controller_bottom_scan.params.yaml`
+
+然后重编：
+
+```bash
+cd ~/grad_proj/qrc_hand/arm_ws
+colcon build --packages-select vision_arm_control
+source install/setup.bash
+```
+
+这轮先别急着动 executor；按你当前留档，先看 Phase A 后日志有没有这几个变化：
+
+* 不再高频重复刷目标
+* 最佳候选不再长期是 `radius=0.0000`
+* `azimuth=180deg` 不再持续霸榜
+* 能看到 `preobserve -> observe` 的阶段推进
+
+如果你愿意，我下一步就接着帮你做 **Phase B：vision_moveit_executor.cpp 的前置过滤和失败候选裁剪**。

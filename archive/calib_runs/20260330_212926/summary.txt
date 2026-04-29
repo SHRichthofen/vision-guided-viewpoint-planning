@@ -1,0 +1,11 @@
+test_lines=25
+dynamic_parsed_samples=5
+dynamic_base_t_mean=[-0.12009,0.06217,-0.29884] m
+dynamic_base_t_std =[0.03175,0.08035,0.05604] m
+dynamic_base_t_radial_max=0.15591 m
+dynamic_base_q_deg_mean/std/max=23.021/18.696/48.841
+static_parsed_samples=19
+static_base_t_mean=[-0.11608,-0.06788,-0.38457] m
+static_base_t_std =[0.00060,0.00010,0.00014] m
+static_base_t_radial_max=0.00135 m
+static_base_q_deg_mean/std/max=0.077/0.038/0.146

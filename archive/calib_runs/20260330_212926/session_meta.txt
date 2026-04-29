@@ -1,0 +1,7 @@
+run_tag=20260330_212926
+required_success=20
+success_count=20
+attempt_count=21
+test_pass=5/5
+result_file=/home/arnoyin/grad_proj/other_hands/implementation/arm_ws/hand_eye_calibration_result.yaml
+saved_file=/home/arnoyin/grad_proj/other_hands/implementation/arm_ws/archive/calib_runs/20260330_212926/hand_eye_calibration_result.yaml

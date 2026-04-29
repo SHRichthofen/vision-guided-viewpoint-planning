@@ -1,0 +1,117 @@
+# ==================== 中心位置（5个样本）====================
+# 位姿 1：中心 - Y轴90°（水平）- z=0.30
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.0, z: 0.30}, orientation: {x: 0.0, y: 0.707, z: 0.0, w: 0.707}}" --once
+# 等待4-5秒
+
+# 位姿 2：中心 - Y轴95°- z=0.32
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.0, z: 0.32}, orientation: {x: 0.0, y: 0.739, z: 0.0, w: 0.673}}" --once
+# 等待4-5秒
+
+# 位姿 3：中心 - Y轴100° - z=0.34
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.0, z: 0.34}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 4：中心 - Y轴105° - z=0.37
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.0, z: 0.37}, orientation: {x: 0.0, y: 0.793, z: 0.0, w: 0.609}}" --once
+# 等待4-5秒
+
+# 位姿 5：中心 - Y轴110° - z=0.40
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.0, z: 0.40}, orientation: {x: 0.0, y: 0.819, z: 0.0, w: 0.574}}" --once
+# 等待4-5秒
+
+# ==================== 左侧位置（5个样本）====================
+# 位姿 6：左侧 - Y轴90° - z=0.32
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: -0.10, z: 0.32}, orientation: {x: 0.0, y: 0.707, z: 0.0, w: 0.707}}" --once
+# 等待4-5秒
+
+# 位姿 7：左侧 - Y轴95° - z=0.34
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: -0.10, z: 0.34}, orientation: {x: 0.0, y: 0.739, z: 0.0, w: 0.673}}" --once
+# 等待4-5秒
+
+# 位姿 8：左侧 - Y轴100° - z=0.36
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: -0.10, z: 0.36}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 9：左侧 - Y轴105° - z=0.38
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: -0.10, z: 0.38}, orientation: {x: 0.0, y: 0.793, z: 0.0, w: 0.609}}" --once
+# 等待4-5秒
+
+# 位姿 10：左侧 - Y轴110° - z=0.41
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: 0.10, y: -0.10, z: 0.40}, orientation: {x: 0.0, y: 0.819, z: 0.0, w: 0.574}}" --once
+# 等待4-5秒
+
+# ==================== 右侧位置（5个样本）====================
+# 位姿 11：右侧 - Y轴90° - z=0.32
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.10, z: 0.32}, orientation: {x: 0.0, y: 0.707, z: 0.0, w: 0.707}}" --once
+# 等待4-5秒
+
+# 位姿 12：右侧 - Y轴95° - z=0.34
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.10, z: 0.34}, orientation: {x: 0.0, y: 0.739, z: 0.0, w: 0.673}}" --once
+# 等待4-5秒
+
+# 位姿 13：右侧 - Y轴100° - z=0.36
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.10, z: 0.36}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 14：右侧 - Y轴105° - z=0.38
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.10, z: 0.38}, orientation: {x: 0.0, y: 0.793, z: 0.0, w: 0.609}}" --once
+# 等待4-5秒
+
+# 位姿 15：右侧 - Y轴110° - z=0.41
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.05, y: 0.10, z: 0.41}, orientation: {x: 0.0, y: 0.819, z: 0.0, w: 0.574}}" --once
+# 等待4-5秒
+
+# ==================== 中心前方位置（4个样本）====================
+# 位姿 16：中心前方 - Y轴90° - z=0.35
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.02, y: 0.0, z: 0.35}, orientation: {x: 0.0, y: 0.707, z: 0.0, w: 0.707}}" --once
+# 等待4-5秒
+
+# 位姿 17：中心前方 - Y轴100° - z=0.37
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.02, y: 0.0, z: 0.37}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 18：中心前方 - Y轴110° - z=0.40
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.02, y: 0.0, z: 0.40}, orientation: {x: 0.0, y: 0.819, z: 0.0, w: 0.574}}" --once
+# 等待4-5秒
+
+# 位姿 19：中心前方 - Y轴100° - z=0.33
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.02, y: 0.0, z: 0.33}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# ==================== 中心后方位置（4个样本）====================
+# 位姿 20：中心后方 - Y轴90° - z=0.35
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.08, y: 0.0, z: 0.35}, orientation: {x: 0.0, y: 0.707, z: 0.0, w: 0.707}}" --once
+# 等待4-5秒
+
+# 位姿 21：中心后方 - Y轴100° - z=0.37
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.08, y: 0.0, z: 0.37}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 22：中心后方 - Y轴110° - z=0.40
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.08, y: 0.0, z: 0.40}, orientation: {x: 0.0, y: 0.819, z: 0.0, w: 0.574}}" --once
+# 等待4-5秒
+
+# 位姿 23：中心后方 - Y轴100° - z=0.33
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.08, y: 0.0, z: 0.33}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# ==================== 对角位置（4个样本）====================
+# 位姿 24：左前方对角 - Y轴100° - z=0.36
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.02, y: -0.08, z: 0.36}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 25：右前方对角 - Y轴100° - z=0.36
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.02, y: 0.08, z: 0.36}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 26：左后方对角 - Y轴100° - z=0.36
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.08, y: -0.08, z: 0.36}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# 位姿 27：右后方对角 - Y轴100° - z=0.36
+ros2 topic pub /target_pose geometry_msgs/msg/Pose "{position: {x: -0.08, y: 0.08, z: 0.36}, orientation: {x: 0.0, y: 0.766, z: 0.0, w: 0.643}}" --once
+# 等待4-5秒
+
+# ==================== 执行采集 ====================
+ros2 service call /calibration/capture std_srvs/srv/Trigger
+
