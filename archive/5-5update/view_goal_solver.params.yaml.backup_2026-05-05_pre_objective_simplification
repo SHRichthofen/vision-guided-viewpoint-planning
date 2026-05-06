@@ -18,31 +18,24 @@ view_goal_solver:
     # Observation model.
     axis_into_tube_sign: 1.0
     depth_proxy_m: 0.055
-    # standoff_desired_m is kept for compatibility; the current objective uses
-    # the min/max interval below instead of chasing one fixed desired distance.
     standoff_desired_m: 0.12
-    standoff_min_m: 0.005
-    standoff_max_m: 0.20
-    lateral_max_m: 0.035
+    standoff_min_m: 0.09
+    standoff_max_m: 0.18
+    lateral_max_m: 0.015
     enable_fov_constraint: true
     rim_radius_m: 0.025
     rim_sample_count: 16
-    image_margin_px: 45.0
-    min_fov_score: 0.50
-    min_bottom_rim_fov_score: 0.50
-    gaze_max_rad: 0.35
+    image_margin_px: 30.0
+    min_fov_score: 0.95
+    gaze_max_rad: 0.23
     axis_max_rad: 0.35
-    enforce_lateral_max: true
-    enforce_gaze_max: false
-    enforce_axis_max: true
 
     # Cost weights for q -> FK(q) -> camera pose scoring.
-    weight_gaze: 4.0
-    weight_axis: 30.0
-    weight_standoff: 6.0
-    weight_lateral: 8.0
-    weight_fov: 1.0
-    weight_bottom_rim_fov: 1.0
+    weight_gaze: 20.0
+    weight_axis: 4.0
+    weight_standoff: 4.0
+    weight_lateral: 6.0
+    weight_fov: 8.0
     weight_motion: 0.08
     weight_joint_limit: 0.35
     weight_wrist_motion: 0.15
@@ -50,10 +43,10 @@ view_goal_solver:
     joint_limit_margin_threshold_rad: 0.12
 
     # Lightweight continuous q-space coordinate descent.
-    multi_start_count: 16
-    max_iterations_per_seed: 300
-    initial_step_rad: 0.14
-    min_step_rad: 0.001
+    multi_start_count: 12
+    max_iterations_per_seed: 180
+    initial_step_rad: 0.10
+    min_step_rad: 0.0015
     step_shrink: 0.55
     seed_perturbation_rad: 0.35
 

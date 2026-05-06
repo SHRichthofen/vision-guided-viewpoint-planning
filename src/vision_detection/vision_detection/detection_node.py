@@ -15,6 +15,7 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, PoseArray, Pose
+from sensor_msgs.msg import CameraInfo
 from std_msgs.msg import Int32, String
 import numpy as np
 import cv2
@@ -67,6 +68,7 @@ class CylinderDetectionNode(Node):
         self.declare_parameter('look_inward', True)
         self.declare_parameter('publish_once_per_selection', cfg.PUBLISH_ONCE_PER_SELECTION)
         self.declare_parameter('selected_semantics_topic', cfg.SELECTED_SEMANTICS_TOPIC)
+        self.declare_parameter('camera_info_topic', '/vision/camera_info')
         self.declare_parameter('enable_depth_prior', cfg.ENABLE_DEPTH_PRIOR)
         self.declare_parameter('depth_min_m', cfg.DEPTH_MIN_M)
         self.declare_parameter('depth_max_m', cfg.DEPTH_MAX_M)
@@ -83,6 +85,7 @@ class CylinderDetectionNode(Node):
         self.look_inward = self.get_parameter('look_inward').value
         self.publish_once_per_selection = bool(self.get_parameter('publish_once_per_selection').value)
         self.selected_semantics_topic = self.get_parameter('selected_semantics_topic').value
+        self.camera_info_topic = self.get_parameter('camera_info_topic').value
         self.enable_depth_prior = bool(self.get_parameter('enable_depth_prior').value)
         self.depth_min_m = float(self.get_parameter('depth_min_m').value)
         self.depth_max_m = float(self.get_parameter('depth_max_m').value)
@@ -154,6 +157,12 @@ class CylinderDetectionNode(Node):
             self.selected_semantics_topic,
             10
         )
+
+        self.camera_info_pub = self.create_publisher(
+            CameraInfo,
+            self.camera_info_topic,
+            10
+        )
         
         # 订阅目标选择
         self.target_id_sub = self.create_subscription(
@@ -180,15 +189,45 @@ class CylinderDetectionNode(Node):
             publish_interval / 1000.0,
             self.detection_loop
         )
+        self.create_timer(1.0, self.publish_camera_info)
         
         self.get_logger().info("✓ 圆柱检测节点初始化成功")
-        self.get_logger().info(f"  相机内参: fx={self.intr.fx}, fy={self.intr.fy}")
+        self.get_logger().info(
+            f"  相机内参: width={self.intr.width}, height={self.intr.height}, "
+            f"fx={self.intr.fx}, fy={self.intr.fy}, cx={self.intr.ppx}, cy={self.intr.ppy}"
+        )
+        self.get_logger().info(f"  CameraInfo: {self.camera_info_topic}")
         self.get_logger().info(f"  发布频率: {1000/publish_interval:.1f} Hz\n")
 
         if self.enable_visualization:
             self.window_name = "Cylinder Detection - Live View"
             cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
             self.get_logger().info("可视化选目标: [A/D]切换  [ENTER]确认  [X]取消")
+
+    def publish_camera_info(self):
+        msg = CameraInfo()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'camera_color_optical_frame'
+        msg.width = int(self.intr.width)
+        msg.height = int(self.intr.height)
+        msg.distortion_model = 'plumb_bob'
+        msg.d = [float(v) for v in getattr(self.intr, 'coeffs', [0.0, 0.0, 0.0, 0.0, 0.0])]
+        msg.k = [
+            float(self.intr.fx), 0.0, float(self.intr.ppx),
+            0.0, float(self.intr.fy), float(self.intr.ppy),
+            0.0, 0.0, 1.0,
+        ]
+        msg.r = [
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 0.0, 1.0,
+        ]
+        msg.p = [
+            float(self.intr.fx), 0.0, float(self.intr.ppx), 0.0,
+            0.0, float(self.intr.fy), float(self.intr.ppy), 0.0,
+            0.0, 0.0, 1.0, 0.0,
+        ]
+        self.camera_info_pub.publish(msg)
     
     def detection_loop(self):
         """主检测循环"""

@@ -54,22 +54,6 @@ double wrapAngleDelta(double value)
   return std::remainder(value, 2.0 * kPi);
 }
 
-double square(double value)
-{
-  return value * value;
-}
-
-double signedIntervalViolation(double value, double low, double high)
-{
-  if (value < low) {
-    return value - low;
-  }
-  if (value > high) {
-    return value - high;
-  }
-  return 0.0;
-}
-
 std::string boolText(bool value)
 {
   return value ? "true" : "false";
@@ -316,10 +300,6 @@ private:
     double axial_standoff {std::numeric_limits<double>::infinity()};
     double fov_score {-1.0};
     double fov_penalty {0.0};
-    double fov_min_margin_px {std::numeric_limits<double>::infinity()};
-    double bottom_rim_fov_score {-1.0};
-    double bottom_rim_fov_penalty {0.0};
-    double bottom_rim_min_margin_px {std::numeric_limits<double>::infinity()};
     double motion_cost {std::numeric_limits<double>::infinity()};
     double limit_cost {std::numeric_limits<double>::infinity()};
     double wrist_cost {0.0};
@@ -327,11 +307,7 @@ private:
     double distance_to_center {std::numeric_limits<double>::infinity()};
     int fov_inside_count {0};
     int fov_total_count {0};
-    int bottom_rim_inside_count {0};
-    int bottom_rim_total_count {0};
     Eigen::Vector2d projected_center_uv {
-      Eigen::Vector2d::Constant(std::numeric_limits<double>::quiet_NaN())};
-    Eigen::Vector2d projected_bottom_center_uv {
       Eigen::Vector2d::Constant(std::numeric_limits<double>::quiet_NaN())};
     Eigen::Vector2d projected_min_uv {
       Eigen::Vector2d::Constant(std::numeric_limits<double>::quiet_NaN())};
@@ -350,12 +326,6 @@ private:
     int iterations {0};
   };
 
-  struct OptimizationResult
-  {
-    Candidate best_overall;
-    std::optional<Candidate> best_feasible;
-  };
-
   void declareParameters()
   {
     declare_parameter("planning_group", "arm");
@@ -371,36 +341,31 @@ private:
     declare_parameter("solve_once_per_selection", true);
     declare_parameter("axis_into_tube_sign", 1.0);
     declare_parameter("depth_proxy_m", 0.055);
-    declare_parameter("standoff_desired_m", 0.12);
-    declare_parameter("standoff_min_m", 0.055);
-    declare_parameter("standoff_max_m", 0.17);
-    declare_parameter("lateral_max_m", 0.035);
+    declare_parameter("standoff_desired_m", 0.10);
+    declare_parameter("standoff_min_m", 0.06);
+    declare_parameter("standoff_max_m", 0.18);
+    declare_parameter("lateral_max_m", 0.04);
     declare_parameter("enable_fov_constraint", true);
     declare_parameter("rim_radius_m", 0.025);
     declare_parameter("rim_sample_count", 16);
-    declare_parameter("image_margin_px", 45.0);
-    declare_parameter("min_fov_score", 0.50);
-    declare_parameter("min_bottom_rim_fov_score", 0.50);
+    declare_parameter("image_margin_px", 30.0);
+    declare_parameter("min_fov_score", 0.95);
     declare_parameter("gaze_max_rad", 0.35);
-    declare_parameter("axis_max_rad", 0.35);
-    declare_parameter("enforce_lateral_max", true);
-    declare_parameter("enforce_gaze_max", false);
-    declare_parameter("enforce_axis_max", true);
-    declare_parameter("weight_gaze", 4.0);
-    declare_parameter("weight_axis", 16.0);
-    declare_parameter("weight_standoff", 6.0);
-    declare_parameter("weight_lateral", 8.0);
-    declare_parameter("weight_fov", 1.0);
-    declare_parameter("weight_bottom_rim_fov", 1.0);
+    declare_parameter("axis_max_rad", 0.70);
+    declare_parameter("weight_gaze", 8.0);
+    declare_parameter("weight_axis", 2.0);
+    declare_parameter("weight_standoff", 4.0);
+    declare_parameter("weight_lateral", 3.0);
+    declare_parameter("weight_fov", 8.0);
     declare_parameter("weight_motion", 0.08);
     declare_parameter("weight_joint_limit", 0.35);
     declare_parameter("weight_wrist_motion", 0.15);
     declare_parameter("hard_constraint_weight", 80.0);
     declare_parameter("joint_limit_margin_threshold_rad", 0.12);
-    declare_parameter("multi_start_count", 16);
-    declare_parameter("max_iterations_per_seed", 220);
-    declare_parameter("initial_step_rad", 0.14);
-    declare_parameter("min_step_rad", 0.001);
+    declare_parameter("multi_start_count", 7);
+    declare_parameter("max_iterations_per_seed", 120);
+    declare_parameter("initial_step_rad", 0.10);
+    declare_parameter("min_step_rad", 0.003);
     declare_parameter("step_shrink", 0.55);
     declare_parameter("seed_perturbation_rad", 0.35);
     declare_parameter("current_state_wait_sec", 1.0);
@@ -434,19 +399,13 @@ private:
       std::max(4, static_cast<int>(get_parameter("rim_sample_count").as_int()));
     image_margin_px_ = std::max(0.0, get_parameter("image_margin_px").as_double());
     min_fov_score_ = clamp(get_parameter("min_fov_score").as_double(), 0.0, 1.0);
-    min_bottom_rim_fov_score_ =
-      clamp(get_parameter("min_bottom_rim_fov_score").as_double(), 0.0, 1.0);
     gaze_max_rad_ = get_parameter("gaze_max_rad").as_double();
     axis_max_rad_ = get_parameter("axis_max_rad").as_double();
-    enforce_lateral_max_ = get_parameter("enforce_lateral_max").as_bool();
-    enforce_gaze_max_ = get_parameter("enforce_gaze_max").as_bool();
-    enforce_axis_max_ = get_parameter("enforce_axis_max").as_bool();
     weight_gaze_ = get_parameter("weight_gaze").as_double();
     weight_axis_ = get_parameter("weight_axis").as_double();
     weight_standoff_ = get_parameter("weight_standoff").as_double();
     weight_lateral_ = get_parameter("weight_lateral").as_double();
     weight_fov_ = get_parameter("weight_fov").as_double();
-    weight_bottom_rim_fov_ = get_parameter("weight_bottom_rim_fov").as_double();
     weight_motion_ = get_parameter("weight_motion").as_double();
     weight_joint_limit_ = get_parameter("weight_joint_limit").as_double();
     weight_wrist_motion_ = get_parameter("weight_wrist_motion").as_double();
@@ -653,31 +612,16 @@ private:
     const Eigen::Vector3d view_axis =
       resolveViewAxis(measurement.center, measurement.axis_raw, current_camera.translation());
 
-    const OptimizationResult optimization =
-      optimize(measurement, view_axis, *effector_to_camera, *current_state, q0);
-    const bool has_feasible = optimization.best_feasible.has_value();
-    const Candidate & best = has_feasible ?
-      optimization.best_feasible.value() : optimization.best_overall;
-    const std::string selected_candidate = has_feasible ? "best_feasible" : "best_overall";
+    const Candidate best = optimize(measurement, view_axis, *effector_to_camera, *current_state, q0);
     const bool constraints_ok = constraintsSatisfied(best.score);
     const bool should_publish = best.score.finite && (constraints_ok || publish_if_constraints_fail_);
 
-    publishDebug(
-      measurement,
-      view_axis,
-      q0,
-      best,
-      optimization,
-      selected_candidate,
-      constraints_ok,
-      should_publish);
+    publishDebug(measurement, view_axis, q0, best, constraints_ok, should_publish);
 
     if (!should_publish) {
       RCLCPP_WARN(
         get_logger(),
-        "Rejected q-space view goal. feasible=%s, selected=%s, finite=%s, constraints_ok=%s, score=%.6f",
-        boolText(has_feasible).c_str(),
-        selected_candidate.c_str(),
+        "Rejected q-space view goal. finite=%s, constraints_ok=%s, score=%.6f",
         boolText(best.score.finite).c_str(),
         boolText(constraints_ok).c_str(),
         best.score.total);
@@ -701,15 +645,15 @@ private:
       best.score.distance_to_center);
   }
 
-  OptimizationResult optimize(
+  Candidate optimize(
     const Measurement & measurement,
     const Eigen::Vector3d & view_axis,
     const Eigen::Isometry3d & effector_to_camera,
     const moveit::core::RobotState & current_state,
     const std::vector<double> & q0)
   {
-    OptimizationResult result;
-    result.best_overall.q = q0;
+    Candidate best;
+    best.q = q0;
 
     const auto seeds = makeSeeds(q0);
     for (std::size_t i = 0; i < seeds.size(); ++i) {
@@ -724,7 +668,6 @@ private:
         view_axis,
         effector_to_camera,
         current_state);
-      considerCandidate(candidate, result);
 
       double step = initial_step_rad_;
       int iter = 0;
@@ -758,14 +701,10 @@ private:
           {
             candidate.q = std::move(trial_plus);
             candidate.score = plus_score;
-            candidate.iterations = iter + 1;
-            considerCandidate(candidate, result);
             improved = true;
           } else if (minus_score.total + 1e-12 < candidate.score.total) {
             candidate.q = std::move(trial_minus);
             candidate.score = minus_score;
-            candidate.iterations = iter + 1;
-            considerCandidate(candidate, result);
             improved = true;
           }
         }
@@ -776,21 +715,12 @@ private:
         }
       }
       candidate.iterations = iter;
-      considerCandidate(candidate, result);
-    }
-    return result;
-  }
 
-  void considerCandidate(const Candidate & candidate, OptimizationResult & result) const
-  {
-    if (candidate.score.total < result.best_overall.score.total) {
-      result.best_overall = candidate;
+      if (candidate.score.total < best.score.total) {
+        best = candidate;
+      }
     }
-    if (constraintsSatisfied(candidate.score) &&
-      (!result.best_feasible || candidate.score.total < result.best_feasible->score.total))
-    {
-      result.best_feasible = candidate;
-    }
+    return best;
   }
 
   std::vector<std::vector<double>> makeSeeds(const std::vector<double> & q0) const
@@ -875,10 +805,6 @@ private:
     if (!enable_fov_constraint_) {
       score.fov_score = 1.0;
       score.fov_penalty = 0.0;
-      score.fov_min_margin_px = std::numeric_limits<double>::infinity();
-      score.bottom_rim_fov_score = 1.0;
-      score.bottom_rim_fov_penalty = 0.0;
-      score.bottom_rim_min_margin_px = std::numeric_limits<double>::infinity();
       return;
     }
 
@@ -886,19 +812,13 @@ private:
     if (!intr_opt) {
       score.fov_score = 0.0;
       score.fov_penalty = 1.0;
-      score.fov_min_margin_px = -std::numeric_limits<double>::infinity();
-      score.bottom_rim_fov_score = 0.0;
-      score.bottom_rim_fov_penalty = 1.0;
-      score.bottom_rim_min_margin_px = -std::numeric_limits<double>::infinity();
       return;
     }
     const CameraIntrinsics & intr = *intr_opt;
 
     std::vector<Eigen::Vector3d> points;
-    points.reserve(static_cast<std::size_t>(2 * rim_sample_count_ + 2));
-    const std::size_t top_center_index = points.size();
+    points.reserve(static_cast<std::size_t>(rim_sample_count_ + 2));
     points.push_back(measurement.center);
-    const std::size_t bottom_center_index = points.size();
     points.push_back(bottom_proxy);
 
     Eigen::Vector3d u;
@@ -911,75 +831,30 @@ private:
         measurement.center +
         rim_radius_m_ * (std::cos(theta) * u + std::sin(theta) * v));
     }
-    const std::size_t bottom_rim_start_index = points.size();
-    for (int i = 0; i < rim_sample_count_; ++i) {
-      const double theta = 2.0 * kPi * static_cast<double>(i) /
-        static_cast<double>(rim_sample_count_);
-      points.push_back(
-        bottom_proxy +
-        rim_radius_m_ * (std::cos(theta) * u + std::sin(theta) * v));
-    }
-    const std::size_t bottom_rim_end_index = points.size();
 
     int inside_count = 0;
     int total_count = 0;
-    int bottom_rim_inside_count = 0;
-    int bottom_rim_total_count = 0;
     Eigen::Vector2d min_uv(
       std::numeric_limits<double>::infinity(),
       std::numeric_limits<double>::infinity());
     Eigen::Vector2d max_uv(
       -std::numeric_limits<double>::infinity(),
       -std::numeric_limits<double>::infinity());
-    double margin_penalty = 0.0;
-    double min_margin_px = std::numeric_limits<double>::infinity();
-    double bottom_rim_margin_penalty = 0.0;
-    double bottom_rim_min_margin_px = std::numeric_limits<double>::infinity();
-    const double margin_scale = std::max(1.0, image_margin_px_);
 
     for (std::size_t i = 0; i < points.size(); ++i) {
       ++total_count;
-      const bool is_bottom_rim =
-        i >= bottom_rim_start_index && i < bottom_rim_end_index;
-      if (is_bottom_rim) {
-        ++bottom_rim_total_count;
-      }
       const auto uv_opt = projectPoint(base_to_camera, intr, points[i]);
       if (!uv_opt) {
-        margin_penalty += 4.0;
-        min_margin_px = -std::numeric_limits<double>::infinity();
-        if (is_bottom_rim) {
-          bottom_rim_margin_penalty += 4.0;
-          bottom_rim_min_margin_px = -std::numeric_limits<double>::infinity();
-        }
         continue;
       }
       const Eigen::Vector2d uv = *uv_opt;
-      if (i == top_center_index) {
+      if (i == 0) {
         score.projected_center_uv = uv;
-      }
-      if (i == bottom_center_index) {
-        score.projected_bottom_center_uv = uv;
       }
       min_uv.x() = std::min(min_uv.x(), uv.x());
       min_uv.y() = std::min(min_uv.y(), uv.y());
       max_uv.x() = std::max(max_uv.x(), uv.x());
       max_uv.y() = std::max(max_uv.y(), uv.y());
-
-      const double edge_margin = std::min(
-        std::min(uv.x(), static_cast<double>(intr.width) - uv.x()),
-        std::min(uv.y(), static_cast<double>(intr.height) - uv.y()));
-      min_margin_px = std::min(min_margin_px, edge_margin);
-      const double margin_shortage = image_margin_px_ - edge_margin;
-      if (margin_shortage > 0.0) {
-        margin_penalty += square(margin_shortage / margin_scale);
-      }
-      if (is_bottom_rim) {
-        bottom_rim_min_margin_px = std::min(bottom_rim_min_margin_px, edge_margin);
-        if (margin_shortage > 0.0) {
-          bottom_rim_margin_penalty += square(margin_shortage / margin_scale);
-        }
-      }
 
       const bool inside =
         uv.x() >= image_margin_px_ &&
@@ -988,27 +863,14 @@ private:
         uv.y() <= static_cast<double>(intr.height) - image_margin_px_;
       if (inside) {
         ++inside_count;
-        if (is_bottom_rim) {
-          ++bottom_rim_inside_count;
-        }
       }
     }
 
     score.fov_inside_count = inside_count;
     score.fov_total_count = total_count;
-    score.bottom_rim_inside_count = bottom_rim_inside_count;
-    score.bottom_rim_total_count = bottom_rim_total_count;
     score.fov_score = total_count > 0 ?
       static_cast<double>(inside_count) / static_cast<double>(total_count) : 0.0;
-    score.fov_penalty = total_count > 0 ?
-      margin_penalty / static_cast<double>(total_count) : 1.0;
-    score.fov_min_margin_px = min_margin_px;
-    score.bottom_rim_fov_score = bottom_rim_total_count > 0 ?
-      static_cast<double>(bottom_rim_inside_count) /
-      static_cast<double>(bottom_rim_total_count) : 0.0;
-    score.bottom_rim_fov_penalty = bottom_rim_total_count > 0 ?
-      bottom_rim_margin_penalty / static_cast<double>(bottom_rim_total_count) : 1.0;
-    score.bottom_rim_min_margin_px = bottom_rim_min_margin_px;
+    score.fov_penalty = 1.0 - score.fov_score;
     if (std::isfinite(min_uv.x()) && std::isfinite(max_uv.x())) {
       score.projected_min_uv = min_uv;
       score.projected_max_uv = max_uv;
@@ -1059,8 +921,7 @@ private:
     score.lateral_error = lateral_offset.norm();
     score.gaze_error = angleBetween(score.camera_z, to_bottom.normalized());
     score.axis_error = angleBetween(score.camera_z, view_axis);
-    score.standoff_error = signedIntervalViolation(
-      score.axial_standoff, standoff_min_m_, standoff_max_m_);
+    score.standoff_error = score.axial_standoff - standoff_desired_m_;
     score.motion_cost = motionCost(q, q0);
     score.limit_cost = jointLimitCost(q, score.joint_limit_margin);
     score.wrist_cost = wristMotionCost(q, q0);
@@ -1068,40 +929,37 @@ private:
 
     const double gaze_alignment = 1.0 - clamp(score.camera_z.dot(to_bottom.normalized()), -1.0, 1.0);
     const double axis_alignment = 1.0 - clamp(score.camera_z.dot(view_axis), -1.0, 1.0);
-    const double standoff_scale = std::max(0.03, standoff_max_m_ - standoff_min_m_);
+    const double standoff_scale = std::max(0.03, standoff_desired_m_);
     const double standoff_cost =
-      square(score.standoff_error / standoff_scale);
+      (score.standoff_error * score.standoff_error) / (standoff_scale * standoff_scale);
     const double lateral_scale = std::max(0.01, std::max(lateral_max_m_, 0.25 * standoff_scale));
-    const double lateral_cost = square(score.lateral_error / lateral_scale);
+    const double lateral_cost =
+      (score.lateral_error * score.lateral_error) / (lateral_scale * lateral_scale);
 
     double hard_penalty = 0.0;
     if (score.axial_standoff < standoff_min_m_) {
       const double v = (standoff_min_m_ - score.axial_standoff) / standoff_scale;
-      hard_penalty += square(v);
+      hard_penalty += v * v;
     }
     if (score.axial_standoff > standoff_max_m_) {
       const double v = (score.axial_standoff - standoff_max_m_) / standoff_scale;
-      hard_penalty += square(v);
+      hard_penalty += v * v;
     }
-    if (enforce_lateral_max_ && lateral_max_m_ > 0.0 && score.lateral_error > lateral_max_m_) {
+    if (lateral_max_m_ > 0.0 && score.lateral_error > lateral_max_m_) {
       const double v = (score.lateral_error - lateral_max_m_) / lateral_scale;
-      hard_penalty += square(v);
+      hard_penalty += v * v;
     }
     if (enable_fov_constraint_ && score.fov_score < min_fov_score_) {
       const double v = min_fov_score_ - score.fov_score;
-      hard_penalty += square(v);
+      hard_penalty += v * v;
     }
-    if (enable_fov_constraint_ && score.bottom_rim_fov_score < min_bottom_rim_fov_score_) {
-      const double v = min_bottom_rim_fov_score_ - score.bottom_rim_fov_score;
-      hard_penalty += square(v);
-    }
-    if (enforce_gaze_max_ && score.gaze_error > gaze_max_rad_) {
+    if (score.gaze_error > gaze_max_rad_) {
       const double v = score.gaze_error - gaze_max_rad_;
-      hard_penalty += square(v);
+      hard_penalty += v * v;
     }
-    if (enforce_axis_max_ && score.axis_error > axis_max_rad_) {
+    if (score.axis_error > axis_max_rad_) {
       const double v = score.axis_error - axis_max_rad_;
-      hard_penalty += square(v);
+      hard_penalty += v * v;
     }
 
     score.total =
@@ -1110,7 +968,6 @@ private:
       weight_standoff_ * standoff_cost +
       weight_lateral_ * lateral_cost +
       weight_fov_ * score.fov_penalty +
-      weight_bottom_rim_fov_ * score.bottom_rim_fov_penalty +
       weight_motion_ * score.motion_cost +
       weight_joint_limit_ * score.limit_cost +
       weight_wrist_motion_ * score.wrist_cost +
@@ -1193,12 +1050,10 @@ private:
     return
       score.axial_standoff >= standoff_min_m_ &&
       score.axial_standoff <= standoff_max_m_ &&
-      (!enforce_lateral_max_ || lateral_max_m_ <= 0.0 || score.lateral_error <= lateral_max_m_) &&
+      (lateral_max_m_ <= 0.0 || score.lateral_error <= lateral_max_m_) &&
       (!enable_fov_constraint_ || score.fov_score >= min_fov_score_) &&
-      (!enable_fov_constraint_ ||
-        score.bottom_rim_fov_score >= min_bottom_rim_fov_score_) &&
-      (!enforce_gaze_max_ || score.gaze_error <= gaze_max_rad_) &&
-      (!enforce_axis_max_ || score.axis_error <= axis_max_rad_) &&
+      score.gaze_error <= gaze_max_rad_ &&
+      score.axis_error <= axis_max_rad_ &&
       score.joint_limit_margin >= 0.0;
   }
 
@@ -1243,7 +1098,7 @@ private:
         out, first, "axial_standoff_max", score.axial_standoff, standoff_max_m_,
         score.axial_standoff - standoff_max_m_);
     }
-    if (enforce_lateral_max_ && lateral_max_m_ > 0.0 && score.lateral_error > lateral_max_m_) {
+    if (lateral_max_m_ > 0.0 && score.lateral_error > lateral_max_m_) {
       appendConstraintFailure(
         out, first, "lateral_max", score.lateral_error, lateral_max_m_,
         score.lateral_error - lateral_max_m_);
@@ -1253,18 +1108,12 @@ private:
         out, first, "fov_score_min", score.fov_score, min_fov_score_,
         min_fov_score_ - score.fov_score);
     }
-    if (enable_fov_constraint_ && score.bottom_rim_fov_score < min_bottom_rim_fov_score_) {
-      appendConstraintFailure(
-        out, first, "bottom_rim_fov_score_min", score.bottom_rim_fov_score,
-        min_bottom_rim_fov_score_,
-        min_bottom_rim_fov_score_ - score.bottom_rim_fov_score);
-    }
-    if (enforce_gaze_max_ && score.gaze_error > gaze_max_rad_) {
+    if (score.gaze_error > gaze_max_rad_) {
       appendConstraintFailure(
         out, first, "gaze_max", score.gaze_error, gaze_max_rad_,
         score.gaze_error - gaze_max_rad_);
     }
-    if (enforce_axis_max_ && score.axis_error > axis_max_rad_) {
+    if (score.axis_error > axis_max_rad_) {
       appendConstraintFailure(
         out, first, "axis_max", score.axis_error, axis_max_rad_,
         score.axis_error - axis_max_rad_);
@@ -1301,28 +1150,14 @@ private:
     const Eigen::Vector3d & view_axis,
     const std::vector<double> & q0,
     const Candidate & best,
-    const OptimizationResult & optimization,
-    const std::string & selected_candidate,
     bool constraints_ok,
     bool published)
   {
     std_msgs::msg::String msg;
     std::ostringstream out;
-    const bool has_feasible = optimization.best_feasible.has_value();
-    const std::string best_feasible_score = has_feasible ?
-      jsonNumber(optimization.best_feasible->score.total) : "null";
-    const std::string selected_reason = published ?
-      (constraints_ok ? "best_feasible_q_goal" : "best_overall_forced") :
-      (has_feasible ? "selected_candidate_rejected" : "constraints_failed_best_overall");
     out << "{"
         << "\"mode\":\"q_space_fk_coordinate_descent\","
         << "\"selected_target_id\":" << (has_target_id_ ? std::to_string(selected_target_id_) : "null") << ','
-        << "\"selected_candidate\":" << jsonString(selected_candidate) << ','
-        << "\"has_feasible_candidate\":" << boolText(has_feasible) << ','
-        << "\"best_overall_score\":" << jsonNumber(optimization.best_overall.score.total) << ','
-        << "\"best_feasible_score\":" << best_feasible_score << ','
-        << "\"best_overall_constraint_failures\":"
-        << constraintFailuresJson(optimization.best_overall.score) << ','
         << "\"center_base\":" << jsonVec(measurement.center) << ','
         << "\"axis_raw_base\":" << jsonVec(measurement.axis_raw) << ','
         << "\"view_axis_base\":" << jsonVec(view_axis) << ','
@@ -1335,27 +1170,14 @@ private:
         << "\"gaze_error\":" << jsonNumber(best.score.gaze_error) << ','
         << "\"axis_error\":" << jsonNumber(best.score.axis_error) << ','
         << "\"standoff_error\":" << jsonNumber(best.score.standoff_error) << ','
-        << "\"standoff_reference\":\"axial_standoff_interval\","
-        << "\"standoff_desired_m\":" << jsonNumber(standoff_desired_m_) << ','
-        << "\"standoff_interval_m\":[" << jsonNumber(standoff_min_m_) << ','
-        << jsonNumber(standoff_max_m_) << "],"
+        << "\"standoff_reference\":\"axial_standoff\","
         << "\"distance_to_center\":" << jsonNumber(best.score.distance_to_center) << ','
         << "\"lateral_error\":" << jsonNumber(best.score.lateral_error) << ','
         << "\"axial_standoff\":" << jsonNumber(best.score.axial_standoff) << ','
         << "\"fov_score\":" << jsonNumber(best.score.fov_score) << ','
-        << "\"fov_penalty\":" << jsonNumber(best.score.fov_penalty) << ','
-        << "\"fov_min_margin_px\":" << jsonNumber(best.score.fov_min_margin_px) << ','
         << "\"fov_inside_count\":" << best.score.fov_inside_count << ','
         << "\"fov_total_count\":" << best.score.fov_total_count << ','
-        << "\"bottom_rim_fov_score\":" << jsonNumber(best.score.bottom_rim_fov_score) << ','
-        << "\"bottom_rim_fov_penalty\":" << jsonNumber(best.score.bottom_rim_fov_penalty) << ','
-        << "\"bottom_rim_min_margin_px\":"
-        << jsonNumber(best.score.bottom_rim_min_margin_px) << ','
-        << "\"bottom_rim_inside_count\":" << best.score.bottom_rim_inside_count << ','
-        << "\"bottom_rim_total_count\":" << best.score.bottom_rim_total_count << ','
         << "\"projected_center_uv\":" << jsonVec(best.score.projected_center_uv) << ','
-        << "\"projected_bottom_center_uv\":"
-        << jsonVec(best.score.projected_bottom_center_uv) << ','
         << "\"projected_min_uv\":" << jsonVec(best.score.projected_min_uv) << ','
         << "\"projected_max_uv\":" << jsonVec(best.score.projected_max_uv) << ','
         << "\"ik_success\":" << boolText(best.score.finite) << ','
@@ -1371,7 +1193,7 @@ private:
         << "\"published\":" << boolText(published) << ','
         << "\"seed_index\":" << best.seed_index << ','
         << "\"iterations\":" << best.iterations << ','
-        << "\"selected_reason\":" << jsonString(selected_reason)
+        << "\"selected_reason\":" << jsonString(published ? "optimized_q_goal" : "constraints_failed")
         << "}";
     msg.data = out.str();
     debug_pub_->publish(msg);
@@ -1392,41 +1214,36 @@ private:
   bool allow_identity_effector_camera_fallback_ {false};
   bool publish_if_constraints_fail_ {false};
   bool enable_fov_constraint_ {true};
-  bool enforce_lateral_max_ {true};
-  bool enforce_gaze_max_ {false};
-  bool enforce_axis_max_ {true};
 
   double axis_into_tube_sign_ {1.0};
   double depth_proxy_m_ {0.055};
-  double standoff_desired_m_ {0.12};
-  double standoff_min_m_ {0.055};
-  double standoff_max_m_ {0.17};
-  double lateral_max_m_ {0.035};
+  double standoff_desired_m_ {0.10};
+  double standoff_min_m_ {0.06};
+  double standoff_max_m_ {0.18};
+  double lateral_max_m_ {0.04};
   double rim_radius_m_ {0.025};
-  double image_margin_px_ {45.0};
-  double min_fov_score_ {0.50};
-  double min_bottom_rim_fov_score_ {0.50};
+  double image_margin_px_ {30.0};
+  double min_fov_score_ {0.95};
   double gaze_max_rad_ {0.35};
-  double axis_max_rad_ {0.35};
-  double weight_gaze_ {4.0};
-  double weight_axis_ {16.0};
-  double weight_standoff_ {6.0};
-  double weight_lateral_ {8.0};
-  double weight_fov_ {1.0};
-  double weight_bottom_rim_fov_ {1.0};
+  double axis_max_rad_ {0.70};
+  double weight_gaze_ {8.0};
+  double weight_axis_ {2.0};
+  double weight_standoff_ {4.0};
+  double weight_lateral_ {3.0};
+  double weight_fov_ {8.0};
   double weight_motion_ {0.08};
   double weight_joint_limit_ {0.35};
   double weight_wrist_motion_ {0.15};
   double hard_constraint_weight_ {80.0};
   double joint_limit_margin_threshold_rad_ {0.12};
-  double initial_step_rad_ {0.14};
-  double min_step_rad_ {0.001};
+  double initial_step_rad_ {0.10};
+  double min_step_rad_ {0.003};
   double step_shrink_ {0.55};
   double seed_perturbation_rad_ {0.35};
   double current_state_wait_sec_ {1.0};
   double tf_lookup_timeout_sec_ {0.5};
-  int multi_start_count_ {16};
-  int max_iterations_per_seed_ {220};
+  int multi_start_count_ {7};
+  int max_iterations_per_seed_ {120};
   int rim_sample_count_ {16};
 
   int selected_target_id_ {0};

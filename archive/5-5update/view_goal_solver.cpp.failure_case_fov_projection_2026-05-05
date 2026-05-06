@@ -350,12 +350,6 @@ private:
     int iterations {0};
   };
 
-  struct OptimizationResult
-  {
-    Candidate best_overall;
-    std::optional<Candidate> best_feasible;
-  };
-
   void declareParameters()
   {
     declare_parameter("planning_group", "arm");
@@ -379,19 +373,19 @@ private:
     declare_parameter("rim_radius_m", 0.025);
     declare_parameter("rim_sample_count", 16);
     declare_parameter("image_margin_px", 45.0);
-    declare_parameter("min_fov_score", 0.50);
-    declare_parameter("min_bottom_rim_fov_score", 0.50);
+    declare_parameter("min_fov_score", 0.90);
+    declare_parameter("min_bottom_rim_fov_score", 0.95);
     declare_parameter("gaze_max_rad", 0.35);
-    declare_parameter("axis_max_rad", 0.35);
-    declare_parameter("enforce_lateral_max", true);
+    declare_parameter("axis_max_rad", 0.45);
+    declare_parameter("enforce_lateral_max", false);
     declare_parameter("enforce_gaze_max", false);
-    declare_parameter("enforce_axis_max", true);
+    declare_parameter("enforce_axis_max", false);
     declare_parameter("weight_gaze", 4.0);
-    declare_parameter("weight_axis", 16.0);
+    declare_parameter("weight_axis", 12.0);
     declare_parameter("weight_standoff", 6.0);
-    declare_parameter("weight_lateral", 8.0);
-    declare_parameter("weight_fov", 1.0);
-    declare_parameter("weight_bottom_rim_fov", 1.0);
+    declare_parameter("weight_lateral", 2.0);
+    declare_parameter("weight_fov", 16.0);
+    declare_parameter("weight_bottom_rim_fov", 24.0);
     declare_parameter("weight_motion", 0.08);
     declare_parameter("weight_joint_limit", 0.35);
     declare_parameter("weight_wrist_motion", 0.15);
@@ -653,31 +647,16 @@ private:
     const Eigen::Vector3d view_axis =
       resolveViewAxis(measurement.center, measurement.axis_raw, current_camera.translation());
 
-    const OptimizationResult optimization =
-      optimize(measurement, view_axis, *effector_to_camera, *current_state, q0);
-    const bool has_feasible = optimization.best_feasible.has_value();
-    const Candidate & best = has_feasible ?
-      optimization.best_feasible.value() : optimization.best_overall;
-    const std::string selected_candidate = has_feasible ? "best_feasible" : "best_overall";
+    const Candidate best = optimize(measurement, view_axis, *effector_to_camera, *current_state, q0);
     const bool constraints_ok = constraintsSatisfied(best.score);
     const bool should_publish = best.score.finite && (constraints_ok || publish_if_constraints_fail_);
 
-    publishDebug(
-      measurement,
-      view_axis,
-      q0,
-      best,
-      optimization,
-      selected_candidate,
-      constraints_ok,
-      should_publish);
+    publishDebug(measurement, view_axis, q0, best, constraints_ok, should_publish);
 
     if (!should_publish) {
       RCLCPP_WARN(
         get_logger(),
-        "Rejected q-space view goal. feasible=%s, selected=%s, finite=%s, constraints_ok=%s, score=%.6f",
-        boolText(has_feasible).c_str(),
-        selected_candidate.c_str(),
+        "Rejected q-space view goal. finite=%s, constraints_ok=%s, score=%.6f",
         boolText(best.score.finite).c_str(),
         boolText(constraints_ok).c_str(),
         best.score.total);
@@ -701,15 +680,15 @@ private:
       best.score.distance_to_center);
   }
 
-  OptimizationResult optimize(
+  Candidate optimize(
     const Measurement & measurement,
     const Eigen::Vector3d & view_axis,
     const Eigen::Isometry3d & effector_to_camera,
     const moveit::core::RobotState & current_state,
     const std::vector<double> & q0)
   {
-    OptimizationResult result;
-    result.best_overall.q = q0;
+    Candidate best;
+    best.q = q0;
 
     const auto seeds = makeSeeds(q0);
     for (std::size_t i = 0; i < seeds.size(); ++i) {
@@ -724,7 +703,6 @@ private:
         view_axis,
         effector_to_camera,
         current_state);
-      considerCandidate(candidate, result);
 
       double step = initial_step_rad_;
       int iter = 0;
@@ -758,14 +736,10 @@ private:
           {
             candidate.q = std::move(trial_plus);
             candidate.score = plus_score;
-            candidate.iterations = iter + 1;
-            considerCandidate(candidate, result);
             improved = true;
           } else if (minus_score.total + 1e-12 < candidate.score.total) {
             candidate.q = std::move(trial_minus);
             candidate.score = minus_score;
-            candidate.iterations = iter + 1;
-            considerCandidate(candidate, result);
             improved = true;
           }
         }
@@ -776,21 +750,12 @@ private:
         }
       }
       candidate.iterations = iter;
-      considerCandidate(candidate, result);
-    }
-    return result;
-  }
 
-  void considerCandidate(const Candidate & candidate, OptimizationResult & result) const
-  {
-    if (candidate.score.total < result.best_overall.score.total) {
-      result.best_overall = candidate;
+      if (candidate.score.total < best.score.total) {
+        best = candidate;
+      }
     }
-    if (constraintsSatisfied(candidate.score) &&
-      (!result.best_feasible || candidate.score.total < result.best_feasible->score.total))
-    {
-      result.best_feasible = candidate;
-    }
+    return best;
   }
 
   std::vector<std::vector<double>> makeSeeds(const std::vector<double> & q0) const
@@ -1301,28 +1266,14 @@ private:
     const Eigen::Vector3d & view_axis,
     const std::vector<double> & q0,
     const Candidate & best,
-    const OptimizationResult & optimization,
-    const std::string & selected_candidate,
     bool constraints_ok,
     bool published)
   {
     std_msgs::msg::String msg;
     std::ostringstream out;
-    const bool has_feasible = optimization.best_feasible.has_value();
-    const std::string best_feasible_score = has_feasible ?
-      jsonNumber(optimization.best_feasible->score.total) : "null";
-    const std::string selected_reason = published ?
-      (constraints_ok ? "best_feasible_q_goal" : "best_overall_forced") :
-      (has_feasible ? "selected_candidate_rejected" : "constraints_failed_best_overall");
     out << "{"
         << "\"mode\":\"q_space_fk_coordinate_descent\","
         << "\"selected_target_id\":" << (has_target_id_ ? std::to_string(selected_target_id_) : "null") << ','
-        << "\"selected_candidate\":" << jsonString(selected_candidate) << ','
-        << "\"has_feasible_candidate\":" << boolText(has_feasible) << ','
-        << "\"best_overall_score\":" << jsonNumber(optimization.best_overall.score.total) << ','
-        << "\"best_feasible_score\":" << best_feasible_score << ','
-        << "\"best_overall_constraint_failures\":"
-        << constraintFailuresJson(optimization.best_overall.score) << ','
         << "\"center_base\":" << jsonVec(measurement.center) << ','
         << "\"axis_raw_base\":" << jsonVec(measurement.axis_raw) << ','
         << "\"view_axis_base\":" << jsonVec(view_axis) << ','
@@ -1371,7 +1322,7 @@ private:
         << "\"published\":" << boolText(published) << ','
         << "\"seed_index\":" << best.seed_index << ','
         << "\"iterations\":" << best.iterations << ','
-        << "\"selected_reason\":" << jsonString(selected_reason)
+        << "\"selected_reason\":" << jsonString(published ? "optimized_q_goal" : "constraints_failed")
         << "}";
     msg.data = out.str();
     debug_pub_->publish(msg);
@@ -1392,9 +1343,9 @@ private:
   bool allow_identity_effector_camera_fallback_ {false};
   bool publish_if_constraints_fail_ {false};
   bool enable_fov_constraint_ {true};
-  bool enforce_lateral_max_ {true};
+  bool enforce_lateral_max_ {false};
   bool enforce_gaze_max_ {false};
-  bool enforce_axis_max_ {true};
+  bool enforce_axis_max_ {false};
 
   double axis_into_tube_sign_ {1.0};
   double depth_proxy_m_ {0.055};
@@ -1404,16 +1355,16 @@ private:
   double lateral_max_m_ {0.035};
   double rim_radius_m_ {0.025};
   double image_margin_px_ {45.0};
-  double min_fov_score_ {0.50};
-  double min_bottom_rim_fov_score_ {0.50};
+  double min_fov_score_ {0.90};
+  double min_bottom_rim_fov_score_ {0.95};
   double gaze_max_rad_ {0.35};
-  double axis_max_rad_ {0.35};
+  double axis_max_rad_ {0.45};
   double weight_gaze_ {4.0};
-  double weight_axis_ {16.0};
+  double weight_axis_ {12.0};
   double weight_standoff_ {6.0};
-  double weight_lateral_ {8.0};
-  double weight_fov_ {1.0};
-  double weight_bottom_rim_fov_ {1.0};
+  double weight_lateral_ {2.0};
+  double weight_fov_ {16.0};
+  double weight_bottom_rim_fov_ {24.0};
   double weight_motion_ {0.08};
   double weight_joint_limit_ {0.35};
   double weight_wrist_motion_ {0.15};
