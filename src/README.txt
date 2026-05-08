@@ -9,7 +9,8 @@ ros2 launch control vision_bottom_scan_bringup.launch.py \
   arm_type:=piper \
   follow:=true \
   enable_view_goal_solver:=true \
-  enable_legacy_pose_controller:=false
+  enable_legacy_pose_controller:=false \
+  effector_type:=agx_gripper
 ```
 
 这会启动：

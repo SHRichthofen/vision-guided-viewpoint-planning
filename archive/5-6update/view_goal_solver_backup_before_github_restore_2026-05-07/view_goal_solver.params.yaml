@@ -1,0 +1,81 @@
+view_goal_solver:
+  ros__parameters:
+    planning_group: arm
+    base_frame: base_link
+    effector_frame: tcp_link
+    camera_frame: camera_color_optical_frame
+
+    cylinder_semantics_topic: /cylinder_semantics_base
+    target_id_topic: /target_id
+    camera_info_topic: /vision/camera_info
+    joint_target_topic: /view_goal_joint_target
+    debug_topic: /view_goal_solver_debug
+
+    # Keep the legacy pose path available unless this node is explicitly enabled.
+    require_target_id: true
+    solve_once_per_selection: true
+
+    # Observation model.
+    axis_into_tube_sign: 1.0
+    depth_proxy_m: 0.055
+    # standoff_desired_m is kept for compatibility; the current objective uses
+    # the min/max interval below instead of chasing one fixed desired distance.
+    standoff_desired_m: 0.12
+    standoff_min_m: 0.02
+    standoff_max_m: 0.20
+    lateral_max_m: 0.01
+    enable_fov_constraint: false
+    rim_radius_m: 0.025
+    rim_sample_count: 16
+    image_margin_px: 45.0
+    min_fov_score: 0.50
+    min_bottom_rim_fov_score: 0.50
+    gaze_max_rad: 0.35
+    axis_max_rad: 0.5
+    enforce_lateral_max: true
+    enforce_gaze_max: false
+    enforce_axis_max: true
+
+    # Cost weights for q -> FK(q) -> camera pose scoring.
+    weight_gaze: 4.0
+    weight_axis: 30.0
+    weight_standoff: 6.0
+    weight_lateral: 20.0
+    weight_fov: 1.0
+    weight_bottom_rim_fov: 1.0
+    weight_motion: 0.08
+    weight_joint_limit: 0.35
+    weight_wrist_motion: 0.15
+    hard_constraint_weight: 200.0
+    joint_limit_margin_threshold_rad: 0.12
+    enable_feasibility_first: false
+    feasibility_epsilon: 1.0e-8
+    feasibility_tie_break_epsilon: 1.0e-6
+    infeasible_comfort_weight: 0.08
+    infeasible_hard_progress_epsilon: 1.0e-6
+    quality_weight_motion: 2.0
+    quality_weight_wrist_motion: 2.0
+    quality_weight_joint_limit: 3.0
+    quality_weight_axis_residual: 0.15
+    quality_weight_lateral_residual: 0.10
+    enable_state_validity_check: false
+    require_state_validity_for_publish: false
+    state_validity_service: /check_state_validity
+    state_validity_service_wait_sec: 0.05
+    state_validity_response_timeout_sec: 0.8
+    state_validity_max_checks: 12
+    state_validity_candidate_pool_size: 32
+    state_validity_max_contacts: 6
+
+    # Lightweight continuous q-space coordinate descent.
+    multi_start_count: 16
+    max_iterations_per_seed: 300
+    initial_step_rad: 0.14
+    min_step_rad: 0.001
+    step_shrink: 0.5
+    seed_perturbation_rad: 0.35
+
+    current_state_wait_sec: 1.0
+    tf_lookup_timeout_sec: 0.5
+    allow_identity_effector_camera_fallback: false
+    publish_if_constraints_fail: false

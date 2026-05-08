@@ -1,0 +1,7 @@
+ M src/README.txt
+ M src/control/CMakeLists.txt
+ M src/control/config/view_goal_solver.params.yaml
+ M src/control/config/vision_moveit_executor.params.yaml
+ M src/control/package.xml
+ M src/control/src/view_goal_solver.cpp
+?? archive/5-6update/

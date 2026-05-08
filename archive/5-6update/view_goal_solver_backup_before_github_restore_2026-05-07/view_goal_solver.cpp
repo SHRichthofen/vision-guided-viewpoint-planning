@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <future>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -17,8 +19,10 @@
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/robot_model/joint_model_group.h>
 #include <moveit/robot_state/robot_state.h>
+#include <moveit_msgs/srv/get_state_validity.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -26,8 +30,6 @@
 #include <tf2/time.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
-#include <trajectory_msgs/msg/joint_trajectory.hpp>
-#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 
 namespace
 {
@@ -104,6 +106,13 @@ std::string jsonVec(const Eigen::Vector3d & v)
 {
   std::ostringstream out;
   out << '[' << jsonNumber(v.x()) << ',' << jsonNumber(v.y()) << ',' << jsonNumber(v.z()) << ']';
+  return out.str();
+}
+
+std::string jsonVec(const Eigen::Vector2d & v)
+{
+  std::ostringstream out;
+  out << '[' << jsonNumber(v.x()) << ',' << jsonNumber(v.y()) << ']';
   return out.str();
 }
 
@@ -199,6 +208,13 @@ public:
     declareParameters();
     loadParameters();
 
+    state_validity_callback_group_ =
+      create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    state_validity_client_ = create_client<moveit_msgs::srv::GetStateValidity>(
+      state_validity_service_,
+      rmw_qos_profile_services_default,
+      state_validity_callback_group_);
+
     solve_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     rclcpp::SubscriptionOptions solve_subscription_options;
     solve_subscription_options.callback_group = solve_callback_group_;
@@ -211,16 +227,18 @@ public:
       target_id_topic_, 10,
       std::bind(&ViewGoalSolver::onTargetId, this, std::placeholders::_1),
       solve_subscription_options);
+    camera_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+      camera_info_topic_, 10,
+      std::bind(&ViewGoalSolver::onCameraInfo, this, std::placeholders::_1));
+
     joint_target_pub_ = create_publisher<sensor_msgs::msg::JointState>(joint_target_topic_, 10);
-    joint_candidate_pub_ = create_publisher<trajectory_msgs::msg::JointTrajectory>(
-      joint_candidate_topic_, 10);
     debug_pub_ = create_publisher<std_msgs::msg::String>(debug_topic_, 10);
 
     RCLCPP_INFO(
       get_logger(),
-      "view_goal_solver created. input=%s, joint_candidates=%s, legacy_joint_target=%s, debug=%s",
+      "view_goal_solver created. input=%s, camera_info=%s, joint_target=%s, debug=%s",
       cylinder_semantics_topic_.c_str(),
-      joint_candidate_topic_.c_str(),
+      camera_info_topic_.c_str(),
       joint_target_topic_.c_str(),
       debug_topic_.c_str());
   }
@@ -287,38 +305,71 @@ private:
     Eigen::Vector3d axis_raw {Eigen::Vector3d::UnitZ()};
   };
 
+  struct CameraIntrinsics
+  {
+    bool valid {false};
+    int width {0};
+    int height {0};
+    double fx {0.0};
+    double fy {0.0};
+    double cx {0.0};
+    double cy {0.0};
+  };
+
+  struct StateValidityContact
+  {
+    std::string body_1;
+    std::string body_2;
+    double depth {0.0};
+  };
+
   struct Score
   {
     double total {std::numeric_limits<double>::infinity()};
-    double hard_violation_total {std::numeric_limits<double>::infinity()};
-    double feasibility_merit {std::numeric_limits<double>::infinity()};
-    double quality_score {std::numeric_limits<double>::infinity()};
-    double comfort_score {std::numeric_limits<double>::infinity()};
-    double execution_proxy_score {std::numeric_limits<double>::infinity()};
-    double observation_score {std::numeric_limits<double>::infinity()};
-    double rank_score {std::numeric_limits<double>::infinity()};
     double gaze_error {std::numeric_limits<double>::infinity()};
     double axis_error {std::numeric_limits<double>::infinity()};
     double standoff_error {std::numeric_limits<double>::infinity()};
     double lateral_error {std::numeric_limits<double>::infinity()};
     double axial_standoff {std::numeric_limits<double>::infinity()};
-    double axis_violation_norm {std::numeric_limits<double>::infinity()};
-    double lateral_violation_norm {std::numeric_limits<double>::infinity()};
-    double standoff_min_violation_norm {std::numeric_limits<double>::infinity()};
-    double standoff_max_violation_norm {std::numeric_limits<double>::infinity()};
-    double gaze_violation_norm {0.0};
-    double joint_bounds_violation_norm {std::numeric_limits<double>::infinity()};
-    double axis_cost {std::numeric_limits<double>::infinity()};
-    double lateral_cost {std::numeric_limits<double>::infinity()};
-    double standoff_target_cost {std::numeric_limits<double>::infinity()};
+    double fov_score {-1.0};
+    double fov_penalty {0.0};
+    double fov_min_margin_px {std::numeric_limits<double>::infinity()};
+    double bottom_rim_fov_score {-1.0};
+    double bottom_rim_fov_penalty {0.0};
+    double bottom_rim_min_margin_px {std::numeric_limits<double>::infinity()};
     double motion_cost {std::numeric_limits<double>::infinity()};
     double limit_cost {std::numeric_limits<double>::infinity()};
     double wrist_cost {0.0};
     double joint_limit_margin {std::numeric_limits<double>::infinity()};
     double distance_to_center {std::numeric_limits<double>::infinity()};
+    double axis_violation_norm {std::numeric_limits<double>::infinity()};
+    double lateral_violation_norm {std::numeric_limits<double>::infinity()};
+    double standoff_min_violation_norm {std::numeric_limits<double>::infinity()};
+    double standoff_max_violation_norm {std::numeric_limits<double>::infinity()};
+    double gaze_violation_norm {std::numeric_limits<double>::infinity()};
+    double fov_violation_norm {std::numeric_limits<double>::infinity()};
+    double bottom_rim_fov_violation_norm {std::numeric_limits<double>::infinity()};
+    double joint_limit_violation_norm {std::numeric_limits<double>::infinity()};
+    double hard_violation_total {std::numeric_limits<double>::infinity()};
+    double quality_score {std::numeric_limits<double>::infinity()};
+    double comfort_score {std::numeric_limits<double>::infinity()};
+    double feasibility_merit {std::numeric_limits<double>::infinity()};
+    double axis_margin_cost {std::numeric_limits<double>::infinity()};
+    double lateral_margin_cost {std::numeric_limits<double>::infinity()};
+    int fov_inside_count {0};
+    int fov_total_count {0};
+    int bottom_rim_inside_count {0};
+    int bottom_rim_total_count {0};
+    Eigen::Vector2d projected_center_uv {
+      Eigen::Vector2d::Constant(std::numeric_limits<double>::quiet_NaN())};
+    Eigen::Vector2d projected_bottom_center_uv {
+      Eigen::Vector2d::Constant(std::numeric_limits<double>::quiet_NaN())};
+    Eigen::Vector2d projected_min_uv {
+      Eigen::Vector2d::Constant(std::numeric_limits<double>::quiet_NaN())};
+    Eigen::Vector2d projected_max_uv {
+      Eigen::Vector2d::Constant(std::numeric_limits<double>::quiet_NaN())};
     Eigen::Vector3d camera_position {Eigen::Vector3d::Zero()};
     Eigen::Vector3d camera_z {Eigen::Vector3d::UnitZ()};
-    bool joint_bounds_valid {false};
     bool finite {false};
   };
 
@@ -328,13 +379,26 @@ private:
     Score score;
     int seed_index {0};
     int iterations {0};
+    bool state_validity_checked {false};
+    bool state_valid {false};
+    std::string state_validity_error;
+    std::vector<StateValidityContact> state_validity_contacts;
   };
 
   struct OptimizationResult
   {
     Candidate best_overall;
     std::optional<Candidate> best_feasible;
+    std::optional<Candidate> best_checked_feasible;
+    std::optional<Candidate> best_valid_feasible;
     std::vector<Candidate> feasible_candidates;
+    std::vector<Candidate> state_invalid_candidates;
+    bool state_validity_enabled {false};
+    bool state_validity_required_for_publish {false};
+    bool state_validity_service_available {false};
+    int state_validity_check_count {0};
+    int state_validity_invalid_count {0};
+    int state_validity_error_count {0};
   };
 
   void declareParameters()
@@ -345,7 +409,7 @@ private:
     declare_parameter("camera_frame", "camera_color_optical_frame");
     declare_parameter("cylinder_semantics_topic", "/cylinder_semantics_base");
     declare_parameter("target_id_topic", "/target_id");
-    declare_parameter("joint_candidate_topic", "/view_goal_joint_candidates");
+    declare_parameter("camera_info_topic", "/vision/camera_info");
     declare_parameter("joint_target_topic", "/view_goal_joint_target");
     declare_parameter("debug_topic", "/view_goal_solver_debug");
     declare_parameter("require_target_id", true);
@@ -356,13 +420,28 @@ private:
     declare_parameter("standoff_min_m", 0.055);
     declare_parameter("standoff_max_m", 0.17);
     declare_parameter("lateral_max_m", 0.035);
+    declare_parameter("enable_fov_constraint", true);
+    declare_parameter("rim_radius_m", 0.025);
+    declare_parameter("rim_sample_count", 16);
+    declare_parameter("image_margin_px", 45.0);
+    declare_parameter("min_fov_score", 0.50);
+    declare_parameter("min_bottom_rim_fov_score", 0.50);
     declare_parameter("gaze_max_rad", 0.35);
     declare_parameter("axis_max_rad", 0.35);
     declare_parameter("enforce_lateral_max", true);
     declare_parameter("enforce_gaze_max", false);
     declare_parameter("enforce_axis_max", true);
-    declare_parameter("constraint_tolerance_m", 0.001);
-    declare_parameter("constraint_tolerance_rad", 0.005);
+    declare_parameter("weight_gaze", 4.0);
+    declare_parameter("weight_axis", 16.0);
+    declare_parameter("weight_standoff", 6.0);
+    declare_parameter("weight_lateral", 8.0);
+    declare_parameter("weight_fov", 1.0);
+    declare_parameter("weight_bottom_rim_fov", 1.0);
+    declare_parameter("weight_motion", 0.08);
+    declare_parameter("weight_joint_limit", 0.35);
+    declare_parameter("weight_wrist_motion", 0.15);
+    declare_parameter("hard_constraint_weight", 80.0);
+    declare_parameter("joint_limit_margin_threshold_rad", 0.12);
     declare_parameter("enable_feasibility_first", true);
     declare_parameter("feasibility_epsilon", 1.0e-8);
     declare_parameter("feasibility_tie_break_epsilon", 1.0e-6);
@@ -371,13 +450,16 @@ private:
     declare_parameter("quality_weight_motion", 2.0);
     declare_parameter("quality_weight_wrist_motion", 2.0);
     declare_parameter("quality_weight_joint_limit", 3.0);
-    declare_parameter("quality_weight_axis_error", 1.0);
-    declare_parameter("quality_weight_lateral_error", 1.0);
-    declare_parameter("quality_weight_standoff_target", 0.5);
-    declare_parameter("joint_limit_margin_threshold_rad", 0.12);
-    declare_parameter("feasible_candidate_pool_size", 16);
-    declare_parameter("publish_joint_candidate_pool", true);
-    declare_parameter("publish_legacy_joint_target", false);
+    declare_parameter("quality_weight_axis_residual", 0.15);
+    declare_parameter("quality_weight_lateral_residual", 0.10);
+    declare_parameter("enable_state_validity_check", true);
+    declare_parameter("require_state_validity_for_publish", true);
+    declare_parameter("state_validity_service", "/check_state_validity");
+    declare_parameter("state_validity_service_wait_sec", 0.05);
+    declare_parameter("state_validity_response_timeout_sec", 0.8);
+    declare_parameter("state_validity_max_checks", 12);
+    declare_parameter("state_validity_candidate_pool_size", 32);
+    declare_parameter("state_validity_max_contacts", 6);
     declare_parameter("multi_start_count", 16);
     declare_parameter("max_iterations_per_seed", 220);
     declare_parameter("initial_step_rad", 0.14);
@@ -398,7 +480,7 @@ private:
     camera_frame_ = get_parameter("camera_frame").as_string();
     cylinder_semantics_topic_ = get_parameter("cylinder_semantics_topic").as_string();
     target_id_topic_ = get_parameter("target_id_topic").as_string();
-    joint_candidate_topic_ = get_parameter("joint_candidate_topic").as_string();
+    camera_info_topic_ = get_parameter("camera_info_topic").as_string();
     joint_target_topic_ = get_parameter("joint_target_topic").as_string();
     debug_topic_ = get_parameter("debug_topic").as_string();
     require_target_id_ = get_parameter("require_target_id").as_bool();
@@ -409,15 +491,31 @@ private:
     standoff_min_m_ = get_parameter("standoff_min_m").as_double();
     standoff_max_m_ = get_parameter("standoff_max_m").as_double();
     lateral_max_m_ = std::max(0.0, get_parameter("lateral_max_m").as_double());
+    enable_fov_constraint_ = get_parameter("enable_fov_constraint").as_bool();
+    rim_radius_m_ = std::max(0.0, get_parameter("rim_radius_m").as_double());
+    rim_sample_count_ =
+      std::max(4, static_cast<int>(get_parameter("rim_sample_count").as_int()));
+    image_margin_px_ = std::max(0.0, get_parameter("image_margin_px").as_double());
+    min_fov_score_ = clamp(get_parameter("min_fov_score").as_double(), 0.0, 1.0);
+    min_bottom_rim_fov_score_ =
+      clamp(get_parameter("min_bottom_rim_fov_score").as_double(), 0.0, 1.0);
     gaze_max_rad_ = get_parameter("gaze_max_rad").as_double();
     axis_max_rad_ = get_parameter("axis_max_rad").as_double();
     enforce_lateral_max_ = get_parameter("enforce_lateral_max").as_bool();
     enforce_gaze_max_ = get_parameter("enforce_gaze_max").as_bool();
     enforce_axis_max_ = get_parameter("enforce_axis_max").as_bool();
-    constraint_tolerance_m_ =
-      std::max(0.0, get_parameter("constraint_tolerance_m").as_double());
-    constraint_tolerance_rad_ =
-      std::max(0.0, get_parameter("constraint_tolerance_rad").as_double());
+    weight_gaze_ = get_parameter("weight_gaze").as_double();
+    weight_axis_ = get_parameter("weight_axis").as_double();
+    weight_standoff_ = get_parameter("weight_standoff").as_double();
+    weight_lateral_ = get_parameter("weight_lateral").as_double();
+    weight_fov_ = get_parameter("weight_fov").as_double();
+    weight_bottom_rim_fov_ = get_parameter("weight_bottom_rim_fov").as_double();
+    weight_motion_ = get_parameter("weight_motion").as_double();
+    weight_joint_limit_ = get_parameter("weight_joint_limit").as_double();
+    weight_wrist_motion_ = get_parameter("weight_wrist_motion").as_double();
+    hard_constraint_weight_ = get_parameter("hard_constraint_weight").as_double();
+    joint_limit_margin_threshold_rad_ =
+      get_parameter("joint_limit_margin_threshold_rad").as_double();
     enable_feasibility_first_ = get_parameter("enable_feasibility_first").as_bool();
     feasibility_epsilon_ = std::max(0.0, get_parameter("feasibility_epsilon").as_double());
     feasibility_tie_break_epsilon_ =
@@ -429,15 +527,23 @@ private:
     quality_weight_motion_ = get_parameter("quality_weight_motion").as_double();
     quality_weight_wrist_motion_ = get_parameter("quality_weight_wrist_motion").as_double();
     quality_weight_joint_limit_ = get_parameter("quality_weight_joint_limit").as_double();
-    quality_weight_axis_error_ = get_parameter("quality_weight_axis_error").as_double();
-    quality_weight_lateral_error_ = get_parameter("quality_weight_lateral_error").as_double();
-    quality_weight_standoff_target_ = get_parameter("quality_weight_standoff_target").as_double();
-    joint_limit_margin_threshold_rad_ =
-      get_parameter("joint_limit_margin_threshold_rad").as_double();
-    feasible_candidate_pool_size_ =
-      std::max(1, static_cast<int>(get_parameter("feasible_candidate_pool_size").as_int()));
-    publish_joint_candidate_pool_ = get_parameter("publish_joint_candidate_pool").as_bool();
-    publish_legacy_joint_target_ = get_parameter("publish_legacy_joint_target").as_bool();
+    quality_weight_axis_residual_ = get_parameter("quality_weight_axis_residual").as_double();
+    quality_weight_lateral_residual_ =
+      get_parameter("quality_weight_lateral_residual").as_double();
+    enable_state_validity_check_ = get_parameter("enable_state_validity_check").as_bool();
+    require_state_validity_for_publish_ =
+      get_parameter("require_state_validity_for_publish").as_bool();
+    state_validity_service_ = get_parameter("state_validity_service").as_string();
+    state_validity_service_wait_sec_ =
+      std::max(0.0, get_parameter("state_validity_service_wait_sec").as_double());
+    state_validity_response_timeout_sec_ =
+      std::max(0.0, get_parameter("state_validity_response_timeout_sec").as_double());
+    state_validity_max_checks_ =
+      std::max(1, static_cast<int>(get_parameter("state_validity_max_checks").as_int()));
+    state_validity_candidate_pool_size_ =
+      std::max(1, static_cast<int>(get_parameter("state_validity_candidate_pool_size").as_int()));
+    state_validity_max_contacts_ =
+      std::max(0, static_cast<int>(get_parameter("state_validity_max_contacts").as_int()));
     multi_start_count_ = std::max(1, static_cast<int>(get_parameter("multi_start_count").as_int()));
     max_iterations_per_seed_ =
       std::max(1, static_cast<int>(get_parameter("max_iterations_per_seed").as_int()));
@@ -461,6 +567,50 @@ private:
     has_target_id_ = true;
     solved_current_selection_ = false;
     RCLCPP_INFO(get_logger(), "View goal target id switched to %d", selected_target_id_);
+  }
+
+  void onCameraInfo(const sensor_msgs::msg::CameraInfo::SharedPtr msg)
+  {
+    if (!msg) {
+      return;
+    }
+    CameraIntrinsics intr;
+    intr.width = static_cast<int>(msg->width);
+    intr.height = static_cast<int>(msg->height);
+    intr.fx = msg->k[0];
+    intr.fy = msg->k[4];
+    intr.cx = msg->k[2];
+    intr.cy = msg->k[5];
+    intr.valid =
+      intr.width > 0 && intr.height > 0 &&
+      std::isfinite(intr.fx) && std::isfinite(intr.fy) &&
+      std::isfinite(intr.cx) && std::isfinite(intr.cy) &&
+      intr.fx > 0.0 && intr.fy > 0.0;
+    if (!intr.valid) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 3000,
+        "Ignoring invalid CameraInfo on %s", camera_info_topic_.c_str());
+      return;
+    }
+
+    bool log_update = false;
+    {
+      std::lock_guard<std::mutex> lock(camera_info_mutex_);
+      log_update = !camera_intrinsics_.valid ||
+        camera_intrinsics_.width != intr.width ||
+        camera_intrinsics_.height != intr.height ||
+        std::abs(camera_intrinsics_.fx - intr.fx) > 1e-6 ||
+        std::abs(camera_intrinsics_.fy - intr.fy) > 1e-6 ||
+        std::abs(camera_intrinsics_.cx - intr.cx) > 1e-6 ||
+        std::abs(camera_intrinsics_.cy - intr.cy) > 1e-6;
+      camera_intrinsics_ = intr;
+    }
+    if (log_update) {
+      RCLCPP_INFO(
+        get_logger(),
+        "CameraInfo received. width=%d height=%d fx=%.3f fy=%.3f cx=%.3f cy=%.3f",
+        intr.width, intr.height, intr.fx, intr.fy, intr.cx, intr.cy);
+    }
   }
 
   void onCylinderSemantics(const std_msgs::msg::String::SharedPtr msg)
@@ -594,19 +744,28 @@ private:
     const Eigen::Vector3d view_axis =
       resolveViewAxis(measurement.center, measurement.axis_raw, current_camera.translation());
 
-    const OptimizationResult optimization =
+    OptimizationResult optimization =
       optimize(measurement, view_axis, *effector_to_camera, *current_state, q0);
+    applyStateValidityFilter(optimization);
     const bool has_feasible = optimization.best_feasible.has_value();
-    const Candidate & best = has_feasible ?
-      optimization.best_feasible.value() : optimization.best_overall;
-    const std::string selected_candidate = has_feasible ? "best_feasible" : "best_overall";
+    const bool has_valid_feasible = optimization.best_valid_feasible.has_value();
+    const bool has_checked_feasible = optimization.best_checked_feasible.has_value();
+    const Candidate & best = has_valid_feasible ?
+      optimization.best_valid_feasible.value() :
+      (has_checked_feasible ? optimization.best_checked_feasible.value() :
+      (has_feasible ? optimization.best_feasible.value() : optimization.best_overall));
+    const std::string selected_candidate = has_valid_feasible ?
+      "best_valid_feasible" :
+      (has_checked_feasible ? "best_feasible_state_invalid" :
+      (has_feasible ? "best_feasible" : "best_overall"));
     const bool constraints_ok = constraintsSatisfied(best.score);
-    const bool should_publish_candidates =
-      publish_joint_candidate_pool_ && !optimization.feasible_candidates.empty();
-    const bool should_publish_legacy =
-      publish_legacy_joint_target_ && best.score.finite &&
-      (constraints_ok || publish_if_constraints_fail_);
-    const bool should_publish = should_publish_candidates || should_publish_legacy;
+    const bool state_validity_ok =
+      !enable_state_validity_check_ ||
+      !require_state_validity_for_publish_ ||
+      !constraints_ok ||
+      best.state_valid;
+    const bool should_publish =
+      best.score.finite && (constraints_ok || publish_if_constraints_fail_) && state_validity_ok;
 
     publishDebug(
       measurement,
@@ -621,38 +780,30 @@ private:
     if (!should_publish) {
       RCLCPP_WARN(
         get_logger(),
-        "Rejected q-space view goal. feasible=%s, selected=%s, finite=%s, constraints_ok=%s, hard_violation=%.6f",
+        "Rejected q-space view goal. feasible=%s, selected=%s, finite=%s, constraints_ok=%s, score=%.6f",
         boolText(has_feasible).c_str(),
         selected_candidate.c_str(),
         boolText(best.score.finite).c_str(),
         boolText(constraints_ok).c_str(),
-        best.score.hard_violation_total);
+        best.score.total);
       return;
     }
 
-    if (should_publish_candidates) {
-      publishJointCandidatePool(optimization.feasible_candidates);
-    }
-
-    if (should_publish_legacy) {
-      sensor_msgs::msg::JointState joint_target;
-      joint_target.header.stamp = now();
-      joint_target.header.frame_id = base_frame_;
-      joint_target.name = joint_names_;
-      joint_target.position = best.q;
-      joint_target_pub_->publish(joint_target);
-    }
+    sensor_msgs::msg::JointState joint_target;
+    joint_target.header.stamp = now();
+    joint_target.header.frame_id = base_frame_;
+    joint_target.name = joint_names_;
+    joint_target.position = best.q;
+    joint_target_pub_->publish(joint_target);
 
     solved_current_selection_ = true;
     RCLCPP_INFO(
       get_logger(),
-      "Published q-space view goal candidates=%zu legacy=%s hard_violation=%.6f quality=%.6f gaze=%.4f rad axis=%.4f rad",
-      optimization.feasible_candidates.size(),
-      boolText(should_publish_legacy).c_str(),
-      best.score.hard_violation_total,
-      best.score.quality_score,
+      "Published q-space view goal. score=%.6f, gaze=%.4f rad, axis=%.4f rad, dist=%.4f m",
+      best.score.total,
       best.score.gaze_error,
-      best.score.axis_error);
+      best.score.axis_error,
+      best.score.distance_to_center);
   }
 
   OptimizationResult optimize(
@@ -753,7 +904,7 @@ private:
 
   void rememberFeasibleCandidate(const Candidate & candidate, OptimizationResult & result) const
   {
-    if (!candidate.score.finite) {
+    if (!enable_state_validity_check_ || !candidate.score.finite) {
       return;
     }
     for (const auto & existing : result.feasible_candidates) {
@@ -769,10 +920,9 @@ private:
       [this](const Candidate & a, const Candidate & b) {
         return candidateBetterForBestFeasible(a.score, b.score);
       });
-    const std::size_t max_size = static_cast<std::size_t>(feasible_candidate_pool_size_);
+    const std::size_t max_size = static_cast<std::size_t>(state_validity_candidate_pool_size_);
     if (result.feasible_candidates.size() > max_size) {
-      result.feasible_candidates.erase(
-        result.feasible_candidates.begin() + max_size,
+      result.feasible_candidates.erase(result.feasible_candidates.begin() + max_size,
         result.feasible_candidates.end());
     }
   }
@@ -804,7 +954,7 @@ private:
     const bool current_feasible = constraintsSatisfied(current);
     const bool trial_feasible = constraintsSatisfied(trial);
     if (!current_feasible) {
-      if (trial_feasible) {
+      if (trial_feasible && !current_feasible) {
         return true;
       }
       const double hard_progress = current.hard_violation_total - trial.hard_violation_total;
@@ -817,15 +967,7 @@ private:
       return trial.feasibility_merit + 1e-12 < current.feasibility_merit;
     }
 
-    if (!trial_feasible) {
-      return false;
-    }
-    const bool current_raw_feasible = rawConstraintsSatisfied(current);
-    const bool trial_raw_feasible = rawConstraintsSatisfied(trial);
-    if (trial_raw_feasible != current_raw_feasible) {
-      return trial_raw_feasible;
-    }
-    return trial.rank_score + 1e-12 < current.rank_score;
+    return trial_feasible && trial.quality_score + 1e-12 < current.quality_score;
   }
 
   bool candidateBetterForBestOverall(const Score & trial, const Score & current) const
@@ -857,12 +999,100 @@ private:
     if (!enable_feasibility_first_) {
       return trial.total < current.total;
     }
-    const bool trial_raw_feasible = rawConstraintsSatisfied(trial);
-    const bool current_raw_feasible = rawConstraintsSatisfied(current);
-    if (trial_raw_feasible != current_raw_feasible) {
-      return trial_raw_feasible;
+    return trial.quality_score < current.quality_score;
+  }
+
+  void applyStateValidityFilter(OptimizationResult & result)
+  {
+    result.state_validity_enabled = enable_state_validity_check_;
+    result.state_validity_required_for_publish = require_state_validity_for_publish_;
+    if (!enable_state_validity_check_ || result.feasible_candidates.empty()) {
+      return;
     }
-    return trial.rank_score < current.rank_score;
+
+    if (!state_validity_client_) {
+      ++result.state_validity_error_count;
+      return;
+    }
+
+    result.state_validity_service_available =
+      state_validity_client_->wait_for_service(
+      std::chrono::duration<double>(state_validity_service_wait_sec_));
+    if (!result.state_validity_service_available) {
+      ++result.state_validity_error_count;
+      return;
+    }
+
+    const int max_checks =
+      std::min(state_validity_max_checks_, static_cast<int>(result.feasible_candidates.size()));
+    for (int i = 0; i < max_checks; ++i) {
+      Candidate checked = result.feasible_candidates[static_cast<std::size_t>(i)];
+      checkStateValidity(checked);
+      ++result.state_validity_check_count;
+      if (!result.best_checked_feasible) {
+        result.best_checked_feasible = checked;
+      }
+      if (checked.state_valid) {
+        result.best_valid_feasible = checked;
+        return;
+      }
+
+      if (checked.state_validity_error == "timeout" ||
+        checked.state_validity_error == "service_call_failed")
+      {
+        ++result.state_validity_error_count;
+        if (result.state_invalid_candidates.empty()) {
+          result.state_invalid_candidates.push_back(checked);
+        }
+        return;
+      }
+
+      ++result.state_validity_invalid_count;
+      if (static_cast<int>(result.state_invalid_candidates.size()) < state_validity_max_checks_) {
+        result.state_invalid_candidates.push_back(checked);
+      }
+    }
+  }
+
+  void checkStateValidity(Candidate & candidate)
+  {
+    candidate.state_validity_checked = true;
+    candidate.state_valid = false;
+    candidate.state_validity_error.clear();
+    candidate.state_validity_contacts.clear();
+
+    auto request = std::make_shared<moveit_msgs::srv::GetStateValidity::Request>();
+    request->group_name = planning_group_;
+    request->robot_state.is_diff = true;
+    request->robot_state.joint_state.header.stamp = now();
+    request->robot_state.joint_state.header.frame_id = base_frame_;
+    request->robot_state.joint_state.name = joint_names_;
+    request->robot_state.joint_state.position = candidate.q;
+
+    auto future = state_validity_client_->async_send_request(request);
+    const auto status =
+      future.wait_for(std::chrono::duration<double>(state_validity_response_timeout_sec_));
+    if (status != std::future_status::ready) {
+      candidate.state_validity_error = "timeout";
+      return;
+    }
+
+    const auto response = future.get();
+    if (!response) {
+      candidate.state_validity_error = "service_call_failed";
+      return;
+    }
+
+    candidate.state_valid = response->valid;
+    candidate.state_validity_error = response->valid ? "" : "invalid";
+    const int max_contacts =
+      std::min(state_validity_max_contacts_, static_cast<int>(response->contacts.size()));
+    candidate.state_validity_contacts.reserve(static_cast<std::size_t>(max_contacts));
+    for (int i = 0; i < max_contacts; ++i) {
+      const auto & contact = response->contacts[static_cast<std::size_t>(i)];
+      candidate.state_validity_contacts.push_back(
+        StateValidityContact{contact.contact_body_1, contact.contact_body_2, contact.depth});
+    }
   }
 
   std::vector<std::vector<double>> makeSeeds(const std::vector<double> & q0) const
@@ -897,6 +1127,196 @@ private:
     return seeds;
   }
 
+  std::optional<CameraIntrinsics> currentCameraIntrinsics() const
+  {
+    std::lock_guard<std::mutex> lock(camera_info_mutex_);
+    if (!camera_intrinsics_.valid) {
+      return std::nullopt;
+    }
+    return camera_intrinsics_;
+  }
+
+  std::optional<Eigen::Vector2d> projectPoint(
+    const Eigen::Isometry3d & base_to_camera,
+    const CameraIntrinsics & intr,
+    const Eigen::Vector3d & point_base) const
+  {
+    const Eigen::Vector3d point_cam = base_to_camera.inverse() * point_base;
+    if (point_cam.z() <= 1e-6) {
+      return std::nullopt;
+    }
+    return Eigen::Vector2d(
+      intr.fx * point_cam.x() / point_cam.z() + intr.cx,
+      intr.fy * point_cam.y() / point_cam.z() + intr.cy);
+  }
+
+  void rimBasis(
+    const Eigen::Vector3d & normal,
+    Eigen::Vector3d & u,
+    Eigen::Vector3d & v) const
+  {
+    const Eigen::Vector3d n = normal.normalized();
+    Eigen::Vector3d ref = (std::abs(n.z()) < 0.9) ?
+      Eigen::Vector3d::UnitZ() : Eigen::Vector3d::UnitX();
+    u = ref.cross(n);
+    if (u.norm() < 1e-6) {
+      ref = Eigen::Vector3d::UnitY();
+      u = ref.cross(n);
+    }
+    u.normalize();
+    v = n.cross(u).normalized();
+  }
+
+  void evaluateFov(
+    Score & score,
+    const Measurement & measurement,
+    const Eigen::Vector3d & view_axis,
+    const Eigen::Vector3d & bottom_proxy,
+    const Eigen::Isometry3d & base_to_camera) const
+  {
+    if (!enable_fov_constraint_) {
+      score.fov_score = 1.0;
+      score.fov_penalty = 0.0;
+      score.fov_min_margin_px = std::numeric_limits<double>::infinity();
+      score.bottom_rim_fov_score = 1.0;
+      score.bottom_rim_fov_penalty = 0.0;
+      score.bottom_rim_min_margin_px = std::numeric_limits<double>::infinity();
+      return;
+    }
+
+    const auto intr_opt = currentCameraIntrinsics();
+    if (!intr_opt) {
+      score.fov_score = 0.0;
+      score.fov_penalty = 1.0;
+      score.fov_min_margin_px = -std::numeric_limits<double>::infinity();
+      score.bottom_rim_fov_score = 0.0;
+      score.bottom_rim_fov_penalty = 1.0;
+      score.bottom_rim_min_margin_px = -std::numeric_limits<double>::infinity();
+      return;
+    }
+    const CameraIntrinsics & intr = *intr_opt;
+
+    std::vector<Eigen::Vector3d> points;
+    points.reserve(static_cast<std::size_t>(2 * rim_sample_count_ + 2));
+    const std::size_t top_center_index = points.size();
+    points.push_back(measurement.center);
+    const std::size_t bottom_center_index = points.size();
+    points.push_back(bottom_proxy);
+
+    Eigen::Vector3d u;
+    Eigen::Vector3d v;
+    rimBasis(view_axis, u, v);
+    for (int i = 0; i < rim_sample_count_; ++i) {
+      const double theta = 2.0 * kPi * static_cast<double>(i) /
+        static_cast<double>(rim_sample_count_);
+      points.push_back(
+        measurement.center +
+        rim_radius_m_ * (std::cos(theta) * u + std::sin(theta) * v));
+    }
+    const std::size_t bottom_rim_start_index = points.size();
+    for (int i = 0; i < rim_sample_count_; ++i) {
+      const double theta = 2.0 * kPi * static_cast<double>(i) /
+        static_cast<double>(rim_sample_count_);
+      points.push_back(
+        bottom_proxy +
+        rim_radius_m_ * (std::cos(theta) * u + std::sin(theta) * v));
+    }
+    const std::size_t bottom_rim_end_index = points.size();
+
+    int inside_count = 0;
+    int total_count = 0;
+    int bottom_rim_inside_count = 0;
+    int bottom_rim_total_count = 0;
+    Eigen::Vector2d min_uv(
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::infinity());
+    Eigen::Vector2d max_uv(
+      -std::numeric_limits<double>::infinity(),
+      -std::numeric_limits<double>::infinity());
+    double margin_penalty = 0.0;
+    double min_margin_px = std::numeric_limits<double>::infinity();
+    double bottom_rim_margin_penalty = 0.0;
+    double bottom_rim_min_margin_px = std::numeric_limits<double>::infinity();
+    const double margin_scale = std::max(1.0, image_margin_px_);
+
+    for (std::size_t i = 0; i < points.size(); ++i) {
+      ++total_count;
+      const bool is_bottom_rim =
+        i >= bottom_rim_start_index && i < bottom_rim_end_index;
+      if (is_bottom_rim) {
+        ++bottom_rim_total_count;
+      }
+      const auto uv_opt = projectPoint(base_to_camera, intr, points[i]);
+      if (!uv_opt) {
+        margin_penalty += 4.0;
+        min_margin_px = -std::numeric_limits<double>::infinity();
+        if (is_bottom_rim) {
+          bottom_rim_margin_penalty += 4.0;
+          bottom_rim_min_margin_px = -std::numeric_limits<double>::infinity();
+        }
+        continue;
+      }
+      const Eigen::Vector2d uv = *uv_opt;
+      if (i == top_center_index) {
+        score.projected_center_uv = uv;
+      }
+      if (i == bottom_center_index) {
+        score.projected_bottom_center_uv = uv;
+      }
+      min_uv.x() = std::min(min_uv.x(), uv.x());
+      min_uv.y() = std::min(min_uv.y(), uv.y());
+      max_uv.x() = std::max(max_uv.x(), uv.x());
+      max_uv.y() = std::max(max_uv.y(), uv.y());
+
+      const double edge_margin = std::min(
+        std::min(uv.x(), static_cast<double>(intr.width) - uv.x()),
+        std::min(uv.y(), static_cast<double>(intr.height) - uv.y()));
+      min_margin_px = std::min(min_margin_px, edge_margin);
+      const double margin_shortage = image_margin_px_ - edge_margin;
+      if (margin_shortage > 0.0) {
+        margin_penalty += square(margin_shortage / margin_scale);
+      }
+      if (is_bottom_rim) {
+        bottom_rim_min_margin_px = std::min(bottom_rim_min_margin_px, edge_margin);
+        if (margin_shortage > 0.0) {
+          bottom_rim_margin_penalty += square(margin_shortage / margin_scale);
+        }
+      }
+
+      const bool inside =
+        uv.x() >= image_margin_px_ &&
+        uv.y() >= image_margin_px_ &&
+        uv.x() <= static_cast<double>(intr.width) - image_margin_px_ &&
+        uv.y() <= static_cast<double>(intr.height) - image_margin_px_;
+      if (inside) {
+        ++inside_count;
+        if (is_bottom_rim) {
+          ++bottom_rim_inside_count;
+        }
+      }
+    }
+
+    score.fov_inside_count = inside_count;
+    score.fov_total_count = total_count;
+    score.bottom_rim_inside_count = bottom_rim_inside_count;
+    score.bottom_rim_total_count = bottom_rim_total_count;
+    score.fov_score = total_count > 0 ?
+      static_cast<double>(inside_count) / static_cast<double>(total_count) : 0.0;
+    score.fov_penalty = total_count > 0 ?
+      margin_penalty / static_cast<double>(total_count) : 1.0;
+    score.fov_min_margin_px = min_margin_px;
+    score.bottom_rim_fov_score = bottom_rim_total_count > 0 ?
+      static_cast<double>(bottom_rim_inside_count) /
+      static_cast<double>(bottom_rim_total_count) : 0.0;
+    score.bottom_rim_fov_penalty = bottom_rim_total_count > 0 ?
+      bottom_rim_margin_penalty / static_cast<double>(bottom_rim_total_count) : 1.0;
+    score.bottom_rim_min_margin_px = bottom_rim_min_margin_px;
+    if (std::isfinite(min_uv.x()) && std::isfinite(max_uv.x())) {
+      score.projected_min_uv = min_uv;
+      score.projected_max_uv = max_uv;
+    }
+  }
+
   Score evaluate(
     const std::vector<double> & q,
     const std::vector<double> & q0,
@@ -910,12 +1330,9 @@ private:
       return score;
     }
 
-    score.joint_bounds_violation_norm = jointBoundsViolation(q, score.joint_bounds_valid);
-    std::vector<double> bounded_q = q;
-    clampToBounds(bounded_q);
-
     moveit::core::RobotState state(template_state);
-    state.setJointGroupPositions(joint_model_group_, bounded_q);
+    state.setJointGroupPositions(joint_model_group_, q);
+    state.enforceBounds(joint_model_group_);
     state.update();
 
     if (!state.satisfiesBounds(joint_model_group_, 0.0)) {
@@ -949,10 +1366,60 @@ private:
     score.motion_cost = motionCost(q, q0);
     score.limit_cost = jointLimitCost(q, score.joint_limit_margin);
     score.wrist_cost = wristMotionCost(q, q0);
+    evaluateFov(score, measurement, view_axis, bottom_proxy, base_to_camera);
+
+    const double gaze_alignment = 1.0 - clamp(score.camera_z.dot(to_bottom.normalized()), -1.0, 1.0);
+    const double axis_alignment = 1.0 - clamp(score.camera_z.dot(view_axis), -1.0, 1.0);
+    const double standoff_scale = std::max(0.03, standoff_max_m_ - standoff_min_m_);
+    const double standoff_cost =
+      square(score.standoff_error / standoff_scale);
+    const double lateral_scale = std::max(0.01, std::max(lateral_max_m_, 0.25 * standoff_scale));
+    const double lateral_cost = square(score.lateral_error / lateral_scale);
+
+    double hard_penalty = 0.0;
+    if (score.axial_standoff < standoff_min_m_) {
+      const double v = (standoff_min_m_ - score.axial_standoff) / standoff_scale;
+      hard_penalty += square(v);
+    }
+    if (score.axial_standoff > standoff_max_m_) {
+      const double v = (score.axial_standoff - standoff_max_m_) / standoff_scale;
+      hard_penalty += square(v);
+    }
+    if (enforce_lateral_max_ && lateral_max_m_ > 0.0 && score.lateral_error > lateral_max_m_) {
+      const double v = (score.lateral_error - lateral_max_m_) / lateral_scale;
+      hard_penalty += square(v);
+    }
+    if (enable_fov_constraint_ && score.fov_score < min_fov_score_) {
+      const double v = min_fov_score_ - score.fov_score;
+      hard_penalty += square(v);
+    }
+    if (enable_fov_constraint_ && score.bottom_rim_fov_score < min_bottom_rim_fov_score_) {
+      const double v = min_bottom_rim_fov_score_ - score.bottom_rim_fov_score;
+      hard_penalty += square(v);
+    }
+    if (enforce_gaze_max_ && score.gaze_error > gaze_max_rad_) {
+      const double v = score.gaze_error - gaze_max_rad_;
+      hard_penalty += square(v);
+    }
+    if (enforce_axis_max_ && score.axis_error > axis_max_rad_) {
+      const double v = score.axis_error - axis_max_rad_;
+      hard_penalty += square(v);
+    }
 
     computeConstraintViolation(score);
     computeQualityScore(score);
-    score.total = score.hard_violation_total + score.quality_score;
+
+    score.total =
+      weight_gaze_ * gaze_alignment +
+      weight_axis_ * axis_alignment +
+      weight_standoff_ * standoff_cost +
+      weight_lateral_ * lateral_cost +
+      weight_fov_ * score.fov_penalty +
+      weight_bottom_rim_fov_ * score.bottom_rim_fov_penalty +
+      weight_motion_ * score.motion_cost +
+      weight_joint_limit_ * score.limit_cost +
+      weight_wrist_motion_ * score.wrist_cost +
+      hard_constraint_weight_ * hard_penalty;
     score.finite = std::isfinite(score.total);
     return score;
   }
@@ -977,11 +1444,6 @@ private:
     return std::max(0.03, standoff_max_m_ - standoff_min_m_);
   }
 
-  double standoffTargetScale() const
-  {
-    return std::max(0.03, standoff_max_m_ - standoff_min_m_);
-  }
-
   void computeConstraintViolation(Score & score) const
   {
     const bool metrics_finite =
@@ -989,7 +1451,9 @@ private:
       std::isfinite(score.lateral_error) &&
       std::isfinite(score.axial_standoff) &&
       std::isfinite(score.gaze_error) &&
-      std::isfinite(score.joint_bounds_violation_norm);
+      std::isfinite(score.fov_score) &&
+      std::isfinite(score.bottom_rim_fov_score) &&
+      std::isfinite(score.joint_limit_margin);
     if (!metrics_finite) {
       return;
     }
@@ -1004,6 +1468,13 @@ private:
       std::max(0.0, score.axial_standoff - standoff_max_m_) / standoffViolationScale();
     score.gaze_violation_norm = enforce_gaze_max_ ?
       std::max(0.0, score.gaze_error - gaze_max_rad_) / gazeViolationScale() : 0.0;
+    score.fov_violation_norm = enable_fov_constraint_ ?
+      std::max(0.0, min_fov_score_ - score.fov_score) : 0.0;
+    score.bottom_rim_fov_violation_norm = enable_fov_constraint_ ?
+      std::max(0.0, min_bottom_rim_fov_score_ - score.bottom_rim_fov_score) : 0.0;
+    score.joint_limit_violation_norm =
+      std::max(0.0, -score.joint_limit_margin) /
+      std::max(1e-4, joint_limit_margin_threshold_rad_);
 
     score.hard_violation_total =
       square(score.axis_violation_norm) +
@@ -1011,7 +1482,9 @@ private:
       square(score.standoff_min_violation_norm) +
       square(score.standoff_max_violation_norm) +
       square(score.gaze_violation_norm) +
-      square(score.joint_bounds_violation_norm);
+      square(score.fov_violation_norm) +
+      square(score.bottom_rim_fov_violation_norm) +
+      square(score.joint_limit_violation_norm);
   }
 
   void computeQualityScore(Score & score) const
@@ -1022,56 +1495,30 @@ private:
       std::isfinite(score.limit_cost) &&
       std::isfinite(score.axis_error) &&
       std::isfinite(score.lateral_error) &&
-      std::isfinite(score.axial_standoff) &&
       std::isfinite(score.hard_violation_total);
     if (!metrics_finite) {
       return;
     }
 
-    score.axis_cost = enforce_axis_max_ ? square(score.axis_error) : 0.0;
-    score.lateral_cost = enforce_lateral_max_ && lateral_max_m_ > 0.0 ?
-      square(score.lateral_error) : 0.0;
-    score.standoff_target_cost = square(score.axial_standoff - standoff_desired_m_);
+    const double axis_inside_margin = enforce_axis_max_ ?
+      std::max(0.0, axis_max_rad_ - score.axis_error) / axisViolationScale() : 1.0;
+    const double lateral_inside_margin = enforce_lateral_max_ && lateral_max_m_ > 0.0 ?
+      std::max(0.0, lateral_max_m_ - score.lateral_error) / lateralViolationScale() : 1.0;
+    score.axis_margin_cost = square(std::max(0.0, 1.0 - axis_inside_margin));
+    score.lateral_margin_cost = square(std::max(0.0, 1.0 - lateral_inside_margin));
     score.comfort_score =
       score.motion_cost +
       score.wrist_cost +
       score.limit_cost;
-    score.execution_proxy_score =
-      quality_weight_motion_ * score.motion_cost +
-      quality_weight_wrist_motion_ * score.wrist_cost +
-      quality_weight_joint_limit_ * score.limit_cost;
-    score.observation_score =
-      quality_weight_axis_error_ * score.axis_cost +
-      quality_weight_lateral_error_ * score.lateral_cost +
-      quality_weight_standoff_target_ * score.standoff_target_cost;
-    score.rank_score = score.execution_proxy_score + score.observation_score;
     score.feasibility_merit =
       score.hard_violation_total +
-      infeasible_comfort_weight_ * score.execution_proxy_score;
-    score.quality_score = score.rank_score;
-  }
-
-  double jointBoundsViolation(const std::vector<double> & q, bool & valid) const
-  {
-    valid = q.size() == bounds_.size();
-    if (!valid) {
-      return std::numeric_limits<double>::infinity();
-    }
-
-    double violation = 0.0;
-    for (std::size_t i = 0; i < q.size(); ++i) {
-      if (!bounds_[i].bounded) {
-        continue;
-      }
-      const double span = jointSpan(i);
-      const double lower_violation = std::max(0.0, bounds_[i].lower - q[i]) / span;
-      const double upper_violation = std::max(0.0, q[i] - bounds_[i].upper) / span;
-      if (lower_violation > 0.0 || upper_violation > 0.0) {
-        valid = false;
-      }
-      violation += square(lower_violation) + square(upper_violation);
-    }
-    return std::sqrt(violation);
+      infeasible_comfort_weight_ * score.comfort_score;
+    score.quality_score =
+      quality_weight_motion_ * score.motion_cost +
+      quality_weight_wrist_motion_ * score.wrist_cost +
+      quality_weight_joint_limit_ * score.limit_cost +
+      quality_weight_axis_residual_ * score.axis_margin_cost +
+      quality_weight_lateral_residual_ * score.lateral_margin_cost;
   }
 
   double motionCost(const std::vector<double> & q, const std::vector<double> & q0) const
@@ -1146,27 +1593,15 @@ private:
       return false;
     }
     return
-      score.axial_standoff >= standoff_min_m_ - constraint_tolerance_m_ &&
-      score.axial_standoff <= standoff_max_m_ + constraint_tolerance_m_ &&
-      (!enforce_lateral_max_ || lateral_max_m_ <= 0.0 ||
-        score.lateral_error <= lateral_max_m_ + constraint_tolerance_m_) &&
-      (!enforce_gaze_max_ || score.gaze_error <= gaze_max_rad_ + constraint_tolerance_rad_) &&
-      (!enforce_axis_max_ || score.axis_error <= axis_max_rad_ + constraint_tolerance_rad_) &&
-      score.joint_bounds_valid;
-  }
-
-  bool rawConstraintsSatisfied(const Score & score) const
-  {
-    if (!score.finite) {
-      return false;
-    }
-    return
       score.axial_standoff >= standoff_min_m_ &&
       score.axial_standoff <= standoff_max_m_ &&
       (!enforce_lateral_max_ || lateral_max_m_ <= 0.0 || score.lateral_error <= lateral_max_m_) &&
+      (!enable_fov_constraint_ || score.fov_score >= min_fov_score_) &&
+      (!enable_fov_constraint_ ||
+        score.bottom_rim_fov_score >= min_bottom_rim_fov_score_) &&
       (!enforce_gaze_max_ || score.gaze_error <= gaze_max_rad_) &&
       (!enforce_axis_max_ || score.axis_error <= axis_max_rad_) &&
-      score.joint_bounds_valid;
+      score.joint_limit_margin >= 0.0;
   }
 
   void appendConstraintFailure(
@@ -1215,6 +1650,17 @@ private:
         out, first, "lateral_max", score.lateral_error, lateral_max_m_,
         score.lateral_error - lateral_max_m_);
     }
+    if (enable_fov_constraint_ && score.fov_score < min_fov_score_) {
+      appendConstraintFailure(
+        out, first, "fov_score_min", score.fov_score, min_fov_score_,
+        min_fov_score_ - score.fov_score);
+    }
+    if (enable_fov_constraint_ && score.bottom_rim_fov_score < min_bottom_rim_fov_score_) {
+      appendConstraintFailure(
+        out, first, "bottom_rim_fov_score_min", score.bottom_rim_fov_score,
+        min_bottom_rim_fov_score_,
+        min_bottom_rim_fov_score_ - score.bottom_rim_fov_score);
+    }
     if (enforce_gaze_max_ && score.gaze_error > gaze_max_rad_) {
       appendConstraintFailure(
         out, first, "gaze_max", score.gaze_error, gaze_max_rad_,
@@ -1225,12 +1671,59 @@ private:
         out, first, "axis_max", score.axis_error, axis_max_rad_,
         score.axis_error - axis_max_rad_);
     }
-    if (!score.joint_bounds_valid) {
+    if (score.joint_limit_margin < 0.0) {
       appendConstraintFailure(
-        out, first, "joint_bounds_valid", 0.0, 1.0,
-        score.joint_bounds_violation_norm);
+        out, first, "joint_limit_margin_min", score.joint_limit_margin, 0.0,
+        -score.joint_limit_margin);
     }
 
+    out << ']';
+    return out.str();
+  }
+
+  std::string stateValidityContactsJson(
+    const std::vector<StateValidityContact> & contacts) const
+  {
+    std::ostringstream out;
+    out << '[';
+    for (std::size_t i = 0; i < contacts.size(); ++i) {
+      if (i > 0) {
+        out << ',';
+      }
+      out << "{"
+          << "\"body_1\":" << jsonString(contacts[i].body_1) << ','
+          << "\"body_2\":" << jsonString(contacts[i].body_2) << ','
+          << "\"depth\":" << jsonNumber(contacts[i].depth)
+          << "}";
+    }
+    out << ']';
+    return out.str();
+  }
+
+  std::string stateValidityFailuresJson(const OptimizationResult & optimization) const
+  {
+    std::ostringstream out;
+    out << '[';
+    for (std::size_t i = 0; i < optimization.state_invalid_candidates.size(); ++i) {
+      if (i > 0) {
+        out << ',';
+      }
+      const Candidate & candidate = optimization.state_invalid_candidates[i];
+      out << "{"
+          << "\"seed_index\":" << candidate.seed_index << ','
+          << "\"iterations\":" << candidate.iterations << ','
+          << "\"score\":" << jsonNumber(candidate.score.total) << ','
+          << "\"quality_score\":" << jsonNumber(candidate.score.quality_score) << ','
+          << "\"comfort_score\":" << jsonNumber(candidate.score.comfort_score) << ','
+          << "\"feasibility_merit\":"
+          << jsonNumber(candidate.score.feasibility_merit) << ','
+          << "\"hard_violation_total\":"
+          << jsonNumber(candidate.score.hard_violation_total) << ','
+          << "\"state_validity_error\":"
+          << jsonString(candidate.state_validity_error) << ','
+          << "\"contacts\":" << stateValidityContactsJson(candidate.state_validity_contacts)
+          << "}";
+    }
     out << ']';
     return out.str();
   }
@@ -1252,23 +1745,6 @@ private:
     debug_pub_->publish(msg);
   }
 
-  void publishJointCandidatePool(const std::vector<Candidate> & candidates)
-  {
-    trajectory_msgs::msg::JointTrajectory msg;
-    msg.header.stamp = now();
-    msg.header.frame_id = base_frame_;
-    msg.joint_names = joint_names_;
-    msg.points.reserve(candidates.size());
-
-    for (const auto & candidate : candidates) {
-      trajectory_msgs::msg::JointTrajectoryPoint point;
-      point.positions = candidate.q;
-      msg.points.push_back(std::move(point));
-    }
-
-    joint_candidate_pub_->publish(msg);
-  }
-
   void publishDebug(
     const Measurement & measurement,
     const Eigen::Vector3d & view_axis,
@@ -1282,31 +1758,69 @@ private:
     std_msgs::msg::String msg;
     std::ostringstream out;
     const bool has_feasible = optimization.best_feasible.has_value();
+    const bool has_state_valid_feasible = optimization.best_valid_feasible.has_value();
     const std::string best_feasible_score = has_feasible ?
       jsonNumber(optimization.best_feasible->score.total) : "null";
     const std::string best_feasible_quality_score = has_feasible ?
       jsonNumber(optimization.best_feasible->score.quality_score) : "null";
-    const std::string selected_reason = published ?
-      (optimization.feasible_candidates.empty() ? "legacy_joint_target_published" :
-      "joint_candidate_pool_published") :
-      (has_feasible ? "selected_candidate_rejected" : "constraints_failed_best_overall");
+    const std::string best_feasible_state_valid =
+      optimization.best_valid_feasible ? "true" :
+      (optimization.best_checked_feasible ? "false" : "null");
+    const bool state_validity_rejected =
+      enable_state_validity_check_ &&
+      require_state_validity_for_publish_ &&
+      constraints_ok &&
+      best.state_validity_checked &&
+      !best.state_valid;
+    const bool state_validity_unavailable =
+      enable_state_validity_check_ &&
+      require_state_validity_for_publish_ &&
+      constraints_ok &&
+      !best.state_validity_checked &&
+      !has_state_valid_feasible;
+    std::string selected_reason;
+    if (published) {
+      selected_reason = constraints_ok ? selected_candidate + "_q_goal" : "best_overall_forced";
+    } else if (state_validity_rejected) {
+      selected_reason = "state_validity_failed";
+    } else if (state_validity_unavailable) {
+      selected_reason = "state_validity_unavailable";
+    } else {
+      selected_reason = has_feasible ? "selected_candidate_rejected" :
+        "constraints_failed_best_overall";
+    }
     out << "{"
         << "\"mode\":\"q_space_fk_coordinate_descent\","
         << "\"optimization_strategy\":"
         << jsonString(
           enable_feasibility_first_ ?
-          "feasibility_first_coordinate_descent" : "combined_score_coordinate_descent")
+          "feasibility_first_coordinate_descent" : "legacy_weighted_score_coordinate_descent")
         << ','
         << "\"selected_target_id\":" << (has_target_id_ ? std::to_string(selected_target_id_) : "null") << ','
         << "\"selected_candidate\":" << jsonString(selected_candidate) << ','
         << "\"has_feasible_candidate\":" << boolText(has_feasible) << ','
-        << "\"candidate_pool_size\":" << optimization.feasible_candidates.size() << ','
-        << "\"candidate_pool_topic\":" << jsonString(joint_candidate_topic_) << ','
+        << "\"has_state_valid_feasible_candidate\":"
+        << boolText(has_state_valid_feasible) << ','
         << "\"best_overall_score\":" << jsonNumber(optimization.best_overall.score.total) << ','
         << "\"best_overall_hard_violation_total\":"
         << jsonNumber(optimization.best_overall.score.hard_violation_total) << ','
         << "\"best_feasible_score\":" << best_feasible_score << ','
         << "\"best_feasible_quality_score\":" << best_feasible_quality_score << ','
+        << "\"best_feasible_state_valid\":" << best_feasible_state_valid << ','
+        << "\"state_validity_enabled\":"
+        << boolText(optimization.state_validity_enabled) << ','
+        << "\"state_validity_required_for_publish\":"
+        << boolText(optimization.state_validity_required_for_publish) << ','
+        << "\"state_validity_service_available\":"
+        << boolText(optimization.state_validity_service_available) << ','
+        << "\"state_validity_check_count\":"
+        << optimization.state_validity_check_count << ','
+        << "\"state_validity_invalid_count\":"
+        << optimization.state_validity_invalid_count << ','
+        << "\"state_validity_error_count\":"
+        << optimization.state_validity_error_count << ','
+        << "\"state_validity_failures\":"
+        << stateValidityFailuresJson(optimization) << ','
         << "\"best_overall_constraint_failures\":"
         << constraintFailuresJson(optimization.best_overall.score) << ','
         << "\"center_base\":" << jsonVec(measurement.center) << ','
@@ -1321,13 +1835,8 @@ private:
         << "\"hard_violation_total\":" << jsonNumber(best.score.hard_violation_total) << ','
         << "\"feasibility_merit\":" << jsonNumber(best.score.feasibility_merit) << ','
         << "\"comfort_score\":" << jsonNumber(best.score.comfort_score) << ','
-        << "\"quality_score\":" << jsonNumber(best.score.quality_score) << ','
-        << "\"execution_proxy_score\":" << jsonNumber(best.score.execution_proxy_score) << ','
-        << "\"observation_score\":" << jsonNumber(best.score.observation_score) << ','
-        << "\"rank_score\":" << jsonNumber(best.score.rank_score) << ','
-        << "\"raw_constraints_satisfied\":" << boolText(rawConstraintsSatisfied(best.score)) << ','
-        << "\"constraint_tolerance_m\":" << jsonNumber(constraint_tolerance_m_) << ','
-        << "\"constraint_tolerance_rad\":" << jsonNumber(constraint_tolerance_rad_) << ','
+        << "\"axis_margin_cost\":" << jsonNumber(best.score.axis_margin_cost) << ','
+        << "\"lateral_margin_cost\":" << jsonNumber(best.score.lateral_margin_cost) << ','
         << "\"axis_violation_norm\":" << jsonNumber(best.score.axis_violation_norm) << ','
         << "\"lateral_violation_norm\":"
         << jsonNumber(best.score.lateral_violation_norm) << ','
@@ -1336,12 +1845,12 @@ private:
         << "\"standoff_max_violation_norm\":"
         << jsonNumber(best.score.standoff_max_violation_norm) << ','
         << "\"gaze_violation_norm\":" << jsonNumber(best.score.gaze_violation_norm) << ','
-        << "\"joint_bounds_violation_norm\":"
-        << jsonNumber(best.score.joint_bounds_violation_norm) << ','
-        << "\"axis_cost\":" << jsonNumber(best.score.axis_cost) << ','
-        << "\"lateral_cost\":" << jsonNumber(best.score.lateral_cost) << ','
-        << "\"standoff_target_cost\":"
-        << jsonNumber(best.score.standoff_target_cost) << ','
+        << "\"fov_violation_norm\":" << jsonNumber(best.score.fov_violation_norm) << ','
+        << "\"bottom_rim_fov_violation_norm\":"
+        << jsonNumber(best.score.bottom_rim_fov_violation_norm) << ','
+        << "\"joint_limit_violation_norm\":"
+        << jsonNumber(best.score.joint_limit_violation_norm) << ','
+        << "\"quality_score\":" << jsonNumber(best.score.quality_score) << ','
         << "\"gaze_error\":" << jsonNumber(best.score.gaze_error) << ','
         << "\"axis_error\":" << jsonNumber(best.score.axis_error) << ','
         << "\"standoff_error\":" << jsonNumber(best.score.standoff_error) << ','
@@ -1352,15 +1861,39 @@ private:
         << "\"distance_to_center\":" << jsonNumber(best.score.distance_to_center) << ','
         << "\"lateral_error\":" << jsonNumber(best.score.lateral_error) << ','
         << "\"axial_standoff\":" << jsonNumber(best.score.axial_standoff) << ','
+        << "\"fov_score\":" << jsonNumber(best.score.fov_score) << ','
+        << "\"fov_penalty\":" << jsonNumber(best.score.fov_penalty) << ','
+        << "\"fov_min_margin_px\":" << jsonNumber(best.score.fov_min_margin_px) << ','
+        << "\"fov_inside_count\":" << best.score.fov_inside_count << ','
+        << "\"fov_total_count\":" << best.score.fov_total_count << ','
+        << "\"bottom_rim_fov_score\":" << jsonNumber(best.score.bottom_rim_fov_score) << ','
+        << "\"bottom_rim_fov_penalty\":" << jsonNumber(best.score.bottom_rim_fov_penalty) << ','
+        << "\"bottom_rim_min_margin_px\":"
+        << jsonNumber(best.score.bottom_rim_min_margin_px) << ','
+        << "\"bottom_rim_inside_count\":" << best.score.bottom_rim_inside_count << ','
+        << "\"bottom_rim_total_count\":" << best.score.bottom_rim_total_count << ','
+        << "\"projected_center_uv\":" << jsonVec(best.score.projected_center_uv) << ','
+        << "\"projected_bottom_center_uv\":"
+        << jsonVec(best.score.projected_bottom_center_uv) << ','
+        << "\"projected_min_uv\":" << jsonVec(best.score.projected_min_uv) << ','
+        << "\"projected_max_uv\":" << jsonVec(best.score.projected_max_uv) << ','
         << "\"ik_success\":" << boolText(best.score.finite) << ','
         << "\"plan_success\":false,"
         << "\"plan_success_checked\":false,"
-        << "\"joint_bounds_valid\":" << boolText(best.score.joint_bounds_valid) << ','
+        << "\"state_validity_checked\":"
+        << boolText(best.state_validity_checked) << ','
+        << "\"state_valid\":" << boolText(best.state_valid) << ','
+        << "\"state_validity_error\":"
+        << jsonString(best.state_validity_error) << ','
+        << "\"state_validity_contacts\":"
+        << stateValidityContactsJson(best.state_validity_contacts) << ','
         << "\"joint_limit_margin\":" << jsonNumber(best.score.joint_limit_margin) << ','
         << "\"joint_limit_cost\":" << jsonNumber(best.score.limit_cost) << ','
         << "\"motion_cost\":" << jsonNumber(best.score.motion_cost) << ','
         << "\"wrist_motion_cost\":" << jsonNumber(best.score.wrist_cost) << ','
-        << "\"collision_checked\":false,"
+        << "\"collision_checked\":"
+        << boolText(best.state_validity_checked || optimization.state_validity_check_count > 0)
+        << ','
         << "\"constraints_satisfied\":" << boolText(constraints_ok) << ','
         << "\"constraint_failures\":" << constraintFailuresJson(best.score) << ','
         << "\"published\":" << boolText(published) << ','
@@ -1378,7 +1911,7 @@ private:
   std::string camera_frame_;
   std::string cylinder_semantics_topic_;
   std::string target_id_topic_;
-  std::string joint_candidate_topic_;
+  std::string camera_info_topic_;
   std::string joint_target_topic_;
   std::string debug_topic_;
 
@@ -1386,12 +1919,13 @@ private:
   bool solve_once_per_selection_ {true};
   bool allow_identity_effector_camera_fallback_ {false};
   bool publish_if_constraints_fail_ {false};
+  bool enable_fov_constraint_ {true};
   bool enforce_lateral_max_ {true};
   bool enforce_gaze_max_ {false};
   bool enforce_axis_max_ {true};
   bool enable_feasibility_first_ {true};
-  bool publish_joint_candidate_pool_ {true};
-  bool publish_legacy_joint_target_ {false};
+  bool enable_state_validity_check_ {true};
+  bool require_state_validity_for_publish_ {true};
 
   double axis_into_tube_sign_ {1.0};
   double depth_proxy_m_ {0.055};
@@ -1399,10 +1933,22 @@ private:
   double standoff_min_m_ {0.055};
   double standoff_max_m_ {0.17};
   double lateral_max_m_ {0.035};
+  double rim_radius_m_ {0.025};
+  double image_margin_px_ {45.0};
+  double min_fov_score_ {0.50};
+  double min_bottom_rim_fov_score_ {0.50};
   double gaze_max_rad_ {0.35};
   double axis_max_rad_ {0.35};
-  double constraint_tolerance_m_ {0.001};
-  double constraint_tolerance_rad_ {0.005};
+  double weight_gaze_ {4.0};
+  double weight_axis_ {16.0};
+  double weight_standoff_ {6.0};
+  double weight_lateral_ {8.0};
+  double weight_fov_ {1.0};
+  double weight_bottom_rim_fov_ {1.0};
+  double weight_motion_ {0.08};
+  double weight_joint_limit_ {0.35};
+  double weight_wrist_motion_ {0.15};
+  double hard_constraint_weight_ {80.0};
   double joint_limit_margin_threshold_rad_ {0.12};
   double feasibility_epsilon_ {1.0e-8};
   double feasibility_tie_break_epsilon_ {1.0e-6};
@@ -1411,9 +1957,10 @@ private:
   double quality_weight_motion_ {2.0};
   double quality_weight_wrist_motion_ {2.0};
   double quality_weight_joint_limit_ {3.0};
-  double quality_weight_axis_error_ {1.0};
-  double quality_weight_lateral_error_ {1.0};
-  double quality_weight_standoff_target_ {0.5};
+  double quality_weight_axis_residual_ {0.15};
+  double quality_weight_lateral_residual_ {0.10};
+  double state_validity_service_wait_sec_ {0.05};
+  double state_validity_response_timeout_sec_ {0.8};
   double initial_step_rad_ {0.14};
   double min_step_rad_ {0.001};
   double step_shrink_ {0.55};
@@ -1422,7 +1969,11 @@ private:
   double tf_lookup_timeout_sec_ {0.5};
   int multi_start_count_ {16};
   int max_iterations_per_seed_ {220};
-  int feasible_candidate_pool_size_ {16};
+  int rim_sample_count_ {16};
+  int state_validity_max_checks_ {12};
+  int state_validity_candidate_pool_size_ {32};
+  int state_validity_max_contacts_ {6};
+  std::string state_validity_service_ {"/check_state_validity"};
 
   int selected_target_id_ {0};
   bool has_target_id_ {false};
@@ -1439,12 +1990,16 @@ private:
 
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cylinder_sub_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr target_id_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_target_pub_;
-  rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_candidate_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr debug_pub_;
   rclcpp::CallbackGroup::SharedPtr solve_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr state_validity_callback_group_;
+  rclcpp::Client<moveit_msgs::srv::GetStateValidity>::SharedPtr state_validity_client_;
 
   std::mutex solve_mutex_;
+  mutable std::mutex camera_info_mutex_;
+  CameraIntrinsics camera_intrinsics_;
 };
 
 int main(int argc, char ** argv)

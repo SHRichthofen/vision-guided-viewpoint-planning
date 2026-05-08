@@ -1,19 +1,37 @@
 vision_moveit_executor:
   ros__parameters:
-    # 单次定位测试执行器：
-    # 只接收 /target_pose_stamped，不排队，不保留 pending 目标。
-    # 执行中若有新目标到来，直接忽略，避免二次定位和连续追踪。
+    # planning_group: MoveIt planning group name. Layer: planning. Must match the solver's planning_group and SRDF.
     planning_group: arm
+    # base_frame: fallback frame_id for incoming targets without a frame. Layer: input/publishing. Usually robot base_link.
     base_frame: base_link
+
+    # target_pose_stamped_topic: legacy Cartesian pose topic. Layer: optional input. Disabled by enable_pose_target_subscription by default.
     target_pose_stamped_topic: /target_pose_stamped
+    # joint_target_topic: legacy single JointState topic. Layer: optional input. Disabled by enable_joint_target_subscription by default.
     joint_target_topic: /view_goal_joint_target
+    # joint_candidate_topic: JointTrajectory candidate pool from view_goal_solver. Layer: primary input. Candidates are planned in order.
+    joint_candidate_topic: /view_goal_joint_candidates
+    # status_topic: JSON execution status topic. Layer: diagnostics. Reports planning/execution success and all-candidate failures.
     status_topic: /vision_exec_status
 
-    # MoveIt 基本规划参数。
-    planning_time: 3.0
-    num_planning_attempts: 3
+    # enable_pose_target_subscription: subscribe to target_pose_stamped_topic. Layer: input gating. Default false to avoid legacy pose interference.
+    enable_pose_target_subscription: false
+    # enable_joint_target_subscription: subscribe to joint_target_topic. Layer: input gating. Default false because solver now publishes a candidate pool.
+    enable_joint_target_subscription: false
+    # enable_joint_candidate_subscription: subscribe to joint_candidate_topic. Layer: input gating. Default true for executor-side plan fallback.
+    enable_joint_candidate_subscription: true
+
+    # planning_time: seconds allowed for each candidate plan attempt. Layer: MoveIt plan. Larger may recover difficult candidates but slows fallback.
+    planning_time: 5.0
+    # num_planning_attempts: MoveIt planning attempts per candidate. Layer: MoveIt plan. Larger improves odds but multiplies runtime.
+    num_planning_attempts: 10
+    # max_velocity_scaling_factor: 0..1 execution velocity scale. Layer: execution. Smaller moves more slowly.
     max_velocity_scaling_factor: 0.25
+    # max_acceleration_scaling_factor: 0..1 execution acceleration scale. Layer: execution. Smaller softens starts/stops.
     max_acceleration_scaling_factor: 0.25
+    # goal_joint_tolerance: radians tolerance for joint targets. Layer: MoveIt plan. Larger can make planning easier but less precise.
     goal_joint_tolerance: 0.005
-    goal_position_tolerance: 0.01
-    goal_orientation_tolerance: 0.15
+    # goal_position_tolerance: meters tolerance for legacy pose targets. Layer: legacy pose plan. Ignored for joint candidate planning.
+    goal_position_tolerance: 0.003
+    # goal_orientation_tolerance: radians tolerance for legacy pose targets. Layer: legacy pose plan. Ignored for joint candidate planning.
+    goal_orientation_tolerance: 0.10

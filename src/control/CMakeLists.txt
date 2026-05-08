@@ -18,6 +18,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(trajectory_msgs REQUIRED)
 
 add_executable(vision_moveit_executor
   src/vision_moveit_executor.cpp
@@ -28,6 +29,7 @@ ament_target_dependencies(vision_moveit_executor
   geometry_msgs
   sensor_msgs
   std_msgs
+  trajectory_msgs
 )
 install(TARGETS vision_moveit_executor DESTINATION lib/${PROJECT_NAME})
 
@@ -43,6 +45,7 @@ ament_target_dependencies(view_goal_solver
   std_msgs
   tf2
   tf2_ros
+  trajectory_msgs
 )
 install(TARGETS view_goal_solver DESTINATION lib/${PROJECT_NAME})
 
