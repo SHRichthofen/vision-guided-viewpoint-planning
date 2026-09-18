@@ -1,4 +1,4 @@
-# ARX_ARM_WS — Vision-Guided Viewpoint Planning for the AgileX Arm
+# Vision-Guided Viewpoint Planning for the AgileX Arm
 
 A ROS 2 Humble workspace for closed-loop, vision-guided inspection with an
 [AgileX](https://github.com/agilexrobotics) manipulator and an Intel RealSense
@@ -84,8 +84,8 @@ fetched at a pinned revision — see [Setup](#setup).
 ## Setup
 
 ```bash
-git clone https://github.com/starexplorer-robotics/ARX_ARM_WS.git
-cd ARX_ARM_WS
+git clone https://github.com/SHRichthofen/vision-guided-viewpoint-planning.git
+cd vision-guided-viewpoint-planning
 
 # Fetch the upstream AgileX packages at their pinned revisions
 ./scripts/setup_deps.sh
