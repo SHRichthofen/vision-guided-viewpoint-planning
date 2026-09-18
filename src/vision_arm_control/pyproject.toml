@@ -7,7 +7,7 @@ name = "vision_arm_control"
 version = "1.0.0"
 description = "Vision-Arm Integration Package"
 maintainers = [
-    {name = "arno", email = "arno@example.com"},
+    {name = "Rongshen Yin", email = "yinrsh@engineering.upenn.edu"},
 ]
 license = {text = "Apache-2.0"}
 dependencies = []

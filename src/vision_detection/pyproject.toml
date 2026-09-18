@@ -7,7 +7,7 @@ name = "vision_detection"
 version = "1.0.0"
 description = "YOLO-based cylinder detection for RealSense camera"
 maintainers = [
-    {name = "arno", email = "arno@example.com"},
+    {name = "Rongshen Yin", email = "yinrsh@engineering.upenn.edu"},
 ]
 license = {text = "Apache-2.0"}
 dependencies = []
