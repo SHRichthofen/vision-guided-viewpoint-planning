@@ -1,0 +1,9 @@
+# archive/ holds dated design notes and point-in-time code snapshots kept for
+# provenance, not code that ships. Marking it as documentation keeps it fully
+# browsable while excluding it from GitHub's language statistics, which it would
+# otherwise dominate: it carries ~23k lines of superseded Python against ~5k
+# lines in src/.
+archive/** linguist-documentation
+
+# Model weights are data, not source.
+*.pt binary
