@@ -9,7 +9,7 @@
     Bridge between vision detection and robotic arm control.
   </description>
   
-  <maintainer email="arno@example.com">Arno</maintainer>
+  <maintainer email="yinrsh@engineering.upenn.edu">Rongshen Yin</maintainer>
   <license>Apache-2.0</license>
 
   <!-- Build dependencies -->

@@ -9,7 +9,7 @@
     Two-stage detection: cylinder body + rim/hole detection.
   </description>
   
-  <maintainer email="arno@example.com">Arno</maintainer>
+  <maintainer email="yinrsh@engineering.upenn.edu">Rongshen Yin</maintainer>
   <license>Apache-2.0</license>
 
   <!-- Build dependencies -->

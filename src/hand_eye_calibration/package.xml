@@ -8,7 +8,7 @@
     Uses OpenCV hand-eye calibration to compute transformation between tool and camera.
   </description>
   
-  <maintainer email="arno@example.com">Arno</maintainer>
+  <maintainer email="yinrsh@engineering.upenn.edu">Rongshen Yin</maintainer>
   <license>Apache-2.0</license>
 
   <!-- Build dependencies -->

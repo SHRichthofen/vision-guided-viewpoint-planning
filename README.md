@@ -206,5 +206,5 @@ bringup launch files read via the `calib_file` argument. See that package's
 
 ## License
 
-Each package under `src/` declares Apache-2.0 in its `package.xml`. Upstream
-AgileX packages are fetched separately and carry their own licenses.
+Apache-2.0 — see [`LICENSE`](LICENSE). Upstream AgileX packages are fetched
+separately and carry their own licenses.

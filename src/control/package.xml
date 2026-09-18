@@ -2,10 +2,17 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>control</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="you@example.com">root</maintainer>
-  <license>TODO: License declaration</license>
+  <version>1.0.0</version>
+  <description>
+    Control Package - View-Goal Planning and MoveIt Execution.
+    Provides view_goal_solver, which searches joint space for configurations
+    whose camera pose observes a detected cylindrical target under hard
+    geometric constraints, and vision_moveit_executor, which plans and runs
+    the resulting candidates through MoveIt.
+  </description>
+
+  <maintainer email="yinrsh@engineering.upenn.edu">Rongshen Yin</maintainer>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
