@@ -1,5 +1,19 @@
+# --- colcon build artifacts ---
 log/
 build/
 install/
+
+# --- upstream vendor packages (fetched via dependencies.repos) ---
 src/agx_*
+
+# --- python bytecode / packaging ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# --- editor / tooling ---
 .codex
+.vscode/
+.idea/
+*.swp
