@@ -25,6 +25,9 @@
 这样避免了libexec目录问题，直接通过PATH找到可执行文件。
 """
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import ExecuteProcess
 
@@ -36,7 +39,8 @@ def generate_launch_description():
     camera_standoff_m = '0.10'
     target_mode = 'axis_guided_view'
     roll_reference_axis = 'world_z'
-    calib_file = '/home/arnoyin/grad_proj/qrc_hand/arm_ws/src/hand_eye_calibration/calib.yaml'
+    calib_file = os.path.join(
+        get_package_share_directory('hand_eye_calibration'), 'calib.yaml')
     base_frame = 'base_link'
     # 按当前URDF命名约定
     effector_frame = 'Empty_Link6'

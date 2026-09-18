@@ -23,7 +23,7 @@
 
 ```bash
 # 终端1：启动标定节点
-source /home/arnoyin/grad_proj/other_hands/implementation/arm_ws/install/setup.bash
+source install/setup.bash
 ros2 run hand_eye_calibration hand_eye_calibration_node
 ```
 
@@ -39,7 +39,7 @@ ros2 run hand_eye_calibration hand_eye_calibration_node
 
 ```bash
 # 终端2：运行自动采集脚本
-source /home/arnoyin/grad_proj/other_hands/implementation/arm_ws/install/setup.bash
+source install/setup.bash
 python3 src/hand_eye_calibration/scripts/auto_collect_example.py
 ```
 

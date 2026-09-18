@@ -146,7 +146,7 @@ if (using_target_pose_) {
 
 ### 第 1 步：启动标定节点
 ```bash
-cd /home/arnoyin/grad_proj/other_hands/implementation/arm_ws
+cd <workspace-root>
 source install/setup.bash
 ros2 run hand_eye_calibration hand_eye_calibration_node
 ```

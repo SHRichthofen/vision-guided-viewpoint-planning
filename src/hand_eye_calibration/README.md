@@ -76,7 +76,7 @@ camera_fy: 905.906
 camera_cx: 648.379
 camera_cy: 383.873
 min_samples: 20
-output_file: /home/arnoyin/grad_proj/other_hands/implementation/arm_ws/hand_eye_calibration_result.yaml
+output_file: /tmp/hand_eye_calibration_result.yaml
 max_pose_age_sec: 2.0
 max_image_age_sec: 3.0
 board_margin_px: 20
